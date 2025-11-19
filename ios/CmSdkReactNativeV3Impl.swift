@@ -134,20 +134,16 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
 
   @objc
   func getUserStatus(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      do {
-          let status = cmpManager.getUserStatus()
-          let response: [String: Any] = [
-              "status": status.status,
-              "vendors": status.vendors,
-              "purposes": status.purposes,
-              "tcf": status.tcf,
-              "addtlConsent": status.addtlConsent,
-              "regulation": status.regulation
-          ]
-          resolve(response)
-      } catch {
-          reject("ERROR", "Failed to get user status: \(error.localizedDescription)", error)
-      }
+      let status = cmpManager.getUserStatus()
+      let response: [String: Any] = [
+          "status": status.status,
+          "vendors": status.vendors,
+          "purposes": status.purposes,
+          "tcf": status.tcf,
+          "addtlConsent": status.addtlConsent,
+          "regulation": status.regulation
+      ]
+      resolve(response)
   }
 
   @objc

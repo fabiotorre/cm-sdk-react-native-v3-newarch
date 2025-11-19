@@ -20,7 +20,7 @@ import CmSdkReactNativeV3, {
   addClickLinkListener,
   isNewArchitectureEnabled,
   isTurboModuleEnabled,
-} from 'cm-sdk-react-native-v3';
+} from 'cm-sdk-react-native-v3-new-arch';
 
 const HomeScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);

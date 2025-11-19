@@ -1,5 +1,5 @@
 {
-  "name": "cm-sdk-react-native-v3-newarch",
+  "name": "cm-sdk-react-native-v3-new-arch",
   "version": "3.7.0",
   "description": "Consent Management React Native Library by consentmanager.net",
   "source": "./src/index.tsx",
