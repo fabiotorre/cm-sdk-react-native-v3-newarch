@@ -1,0 +1,54 @@
+buildscript {
+    apply(from: {
+        def searchDir = rootDir.toPath()
+        do {
+            def p = searchDir.resolve("node_modules/react-native-test-app/android/dependencies.gradle")
+            if (p.toFile().exists()) {
+                return p.toRealPath().toString()
+            }
+        } while (searchDir = searchDir.getParent())
+        throw new GradleException("Could not find `react-native-test-app`");
+    }())
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
+        google()
+    }
+
+    dependencies {
+        // Override AGP version to 8.9.1 to support androidx.core:core-ktx:1.17.0
+        classpath "com.android.tools.build:gradle:8.9.1"
+        getReactNativeDependencies().each { dependency ->
+            // Skip the AGP dependency from react-native-test-app
+            if (!dependency.toString().contains("com.android.tools.build:gradle")) {
+                classpath(dependency)
+            }
+        }
+    }
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
+        mavenLocal()
+        google()
+    }
+}
+
+// Configure all Android modules to use the correct compileSdk version
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileSdk 36
+            }
+        }
+    }
+}
+
+// Ensure Gradle wrapper uses the correct version for AGP 8.9.1
+tasks.named("wrapper", Wrapper) {
+    gradleVersion = "8.11.1"
+    distributionType = Wrapper.DistributionType.ALL
+}

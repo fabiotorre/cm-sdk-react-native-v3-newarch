@@ -1,0 +1,13 @@
+ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+ENV['RCT_BRIDGELESS_ENABLED'] = '1'  # RN 0.74+
+ENV['USE_HERMES'] = '1'
+
+ws_dir = Pathname.new(__dir__)
+ws_dir = ws_dir.parent until
+  File.exist?("#{ws_dir}/node_modules/react-native-test-app/test_app.rb") ||
+  ws_dir.expand_path.to_s == '/'
+require "#{ws_dir}/node_modules/react-native-test-app/test_app.rb"
+
+workspace 'CmSdkReactNativeV3Example.xcworkspace'
+
+use_test_app!
