@@ -190,7 +190,7 @@ const HomeScreen: React.FC = () => {
   const initializeConsent = async () => {
     try {
       const webViewConfig: WebViewConfig = {
-        position: WebViewPosition.HalfScreenBottom,
+        position: WebViewPosition.FullScreen,
         backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
         cornerRadius: 25,
         respectsSafeArea: true,
