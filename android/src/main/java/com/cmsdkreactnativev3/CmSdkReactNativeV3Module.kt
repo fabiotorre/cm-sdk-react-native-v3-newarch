@@ -17,6 +17,7 @@ import com.facebook.react.bridge.WritableMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import android.util.TypedValue
 import net.consentmanager.cm_sdk_android_v3.CMPManager
 import net.consentmanager.cm_sdk_android_v3.CMPManagerDelegate
 import net.consentmanager.cm_sdk_android_v3.ConsentLayerUIConfig
@@ -94,16 +95,27 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
           "fullScreen" -> ConsentLayerUIConfig.Position.FULL_SCREEN
           "halfScreenBottom" -> ConsentLayerUIConfig.Position.HALF_SCREEN_BOTTOM
           "halfScreenTop" -> ConsentLayerUIConfig.Position.HALF_SCREEN_TOP
+          "custom" -> {
+            Log.w("CmSdkReactNativeV3", "Android SDK ignores custom position/customRect; falling back to fullScreen.")
+            ConsentLayerUIConfig.Position.FULL_SCREEN
+          }
           else -> ConsentLayerUIConfig.Position.FULL_SCREEN
         }
+
+        if (config.hasKey("backgroundStyle")) {
+          Log.w("CmSdkReactNativeV3", "Android SDK currently ignores backgroundStyle overrides; using dimmed default.")
+        }
+
+        val cornerRadiusDp = if (config.hasKey("cornerRadius")) config.getDouble("cornerRadius").toFloat() else 5f
+        val cornerRadius = dpToPx(cornerRadiusDp)
 
         this.webViewConfig = ConsentLayerUIConfig(
           position = position,
           backgroundStyle = ConsentLayerUIConfig.BackgroundStyle.dimmed(android.graphics.Color.BLACK, 0.5f),
-          cornerRadius = (config.getDouble("cornerRadius") ?: 0.0).toFloat(),
-          respectsSafeArea = config.getBoolean("respectsSafeArea"),
+          cornerRadius = cornerRadius,
+          respectsSafeArea = if (config.hasKey("respectsSafeArea")) config.getBoolean("respectsSafeArea") else true,
           isCancelable = false,
-          allowsOrientationChanges = config.getBoolean("allowsOrientationChanges")
+          allowsOrientationChanges = if (config.hasKey("allowsOrientationChanges")) config.getBoolean("allowsOrientationChanges") else true
         )
 
         promise.resolve(null)
@@ -135,7 +147,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   }
 
   private fun initializeCMPManager() {
-    val activity = currentActivity ?: throw IllegalStateException("Current activity is null")
+    val activity = reactApplicationContext.currentActivity ?: throw IllegalStateException("Current activity is null")
     Log.d("CmSdkReactNativeV3", "Initializing CMPManager with activity: $activity, delegate: $this")
 
     cmpManager = CMPManager.getInstance(
@@ -201,6 +213,11 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
     }
   }
 
+  private fun dpToPx(dp: Float): Float {
+    val metrics = reactApplicationContext.resources.displayMetrics
+    return android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, dp, metrics)
+  }
+
   /**
    * Gets the consent status for a specific purpose
    */
@@ -253,7 +270,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   override fun forceOpen(jumpToSettings: Boolean, promise: Promise) {
     scope.launch {
       try {
-        currentActivity?.let { cmpManager.setActivity(it) }
+        reactApplicationContext.currentActivity?.let { cmpManager.setActivity(it) }
 
         cmpManager.forceOpen(jumpToSettings) { result ->
           if (result.isSuccess) {
@@ -275,7 +292,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   override fun checkAndOpen(jumpToSettings: Boolean, promise: Promise) {
     scope.launch {
       try {
-        currentActivity?.let { cmpManager.setActivity(it) }
+        reactApplicationContext.currentActivity?.let { cmpManager.setActivity(it) }
 
         cmpManager.checkAndOpen(jumpToSettings) { result ->
           if (result.isSuccess) {
@@ -451,7 +468,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   override fun onHostResume() {
     if (::cmpManager.isInitialized) {
       cmpManager.onApplicationResume()
-      currentActivity?.let { cmpManager.setActivity(it) }
+      reactApplicationContext.currentActivity?.let { cmpManager.setActivity(it) }
     }
   }
 

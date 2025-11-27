@@ -18,6 +18,11 @@ import CmSdkReactNativeV3, {
   addCloseConsentLayerListener,
   addErrorListener,
   addClickLinkListener,
+  BackgroundStyle,
+  BlurEffectStyle,
+  ATTStatus,
+  WebViewPosition,
+  type WebViewConfig,
   isNewArchitectureEnabled,
   isTurboModuleEnabled,
 } from 'cm-sdk-react-native-v3-new-arch';
@@ -44,7 +49,7 @@ const HomeScreen: React.FC = () => {
       addConsentListener((consent: string, _jsonObject: any) => {
         const message = `Consent received: ${consent.substring(0, 20)}...`;
         console.log(message);
-        setEventLog(prev => [...prev, message]);
+        setEventLog((prev) => [...prev, message]);
         showToast(message);
       })
     );
@@ -54,7 +59,7 @@ const HomeScreen: React.FC = () => {
       addShowConsentLayerListener(() => {
         const message = 'Consent layer shown';
         console.log(message);
-        setEventLog(prev => [...prev, message]);
+        setEventLog((prev) => [...prev, message]);
         showToast(message);
       })
     );
@@ -64,7 +69,7 @@ const HomeScreen: React.FC = () => {
       addCloseConsentLayerListener(() => {
         const message = 'Consent layer closed';
         console.log(message);
-        setEventLog(prev => [...prev, message]);
+        setEventLog((prev) => [...prev, message]);
         showToast(message);
       })
     );
@@ -74,7 +79,7 @@ const HomeScreen: React.FC = () => {
       addErrorListener((error: string) => {
         const message = `Error: ${error}`;
         console.error(message);
-        setEventLog(prev => [...prev, message]);
+        setEventLog((prev) => [...prev, message]);
         showToast(message);
       })
     );
@@ -84,7 +89,7 @@ const HomeScreen: React.FC = () => {
       addClickLinkListener((url: string) => {
         const message = `Link clicked: ${url}`;
         console.log(message);
-        setEventLog(prev => [...prev, message]);
+        setEventLog((prev) => [...prev, message]);
 
         if (url.includes('glitch')) {
           Alert.alert(
@@ -96,8 +101,11 @@ const HomeScreen: React.FC = () => {
                 style: 'cancel',
                 onPress: () => {
                   showToast('Link opening cancelled');
-                  setEventLog(prev => [...prev, 'Google link cancelled by user']);
-                }
+                  setEventLog((prev) => [
+                    ...prev,
+                    'Google link cancelled by user',
+                  ]);
+                },
               },
               {
                 text: 'Open',
@@ -105,28 +113,39 @@ const HomeScreen: React.FC = () => {
                   Linking.openURL(url)
                     .then(() => {
                       showToast('Google link opened in external browser');
-                      setEventLog(prev => [...prev, 'Google link opened externally']);
+                      setEventLog((prev) => [
+                        ...prev,
+                        'Google link opened externally',
+                      ]);
                     })
                     .catch((error) => {
                       console.error('Error opening URL:', error);
                       showToast('Failed to open Google link');
-                      setEventLog(prev => [...prev, `Error opening Google link: ${error.message}`]);
+                      setEventLog((prev) => [
+                        ...prev,
+                        `Error opening Google link: ${error.message}`,
+                      ]);
                     });
-                }
-              }
+                },
+              },
             ]
           );
         } else {
           // For other URLs, just show a toast and let WebView handle them
-          showToast(`Other link detected: ${url.substring(0, 50)}${url.length > 50 ? '...' : ''}`);
-          setEventLog(prev => [...prev, 'Other link will be handled by WebView']);
+          showToast(
+            `Other link detected: ${url.substring(0, 50)}${url.length > 50 ? '...' : ''}`
+          );
+          setEventLog((prev) => [
+            ...prev,
+            'Other link will be handled by WebView',
+          ]);
         }
       })
     );
 
     // Clean up listeners when component unmounts
     return () => {
-      subscriptions.forEach(subscription => subscription.remove());
+      subscriptions.forEach((subscription) => subscription.remove());
     };
   }, []);
 
@@ -139,31 +158,47 @@ const HomeScreen: React.FC = () => {
     try {
       const isNewArch = isNewArchitectureEnabled();
       const hasTurboModule = isTurboModuleEnabled;
-      
+
       if (isNewArch || hasTurboModule) {
         setArchitectureInfo({
           type: 'New Architecture',
-          details: `TurboModule detected on ${Platform.OS}. Enhanced performance and type safety enabled. (TurboModule: ${hasTurboModule}, NewArch: ${isNewArch})`
+          details: `TurboModule detected on ${Platform.OS}. Enhanced performance and type safety enabled. (TurboModule: ${hasTurboModule}, NewArch: ${isNewArch})`,
         });
-        setEventLog(prev => [...prev, '🚀 New Architecture (TurboModule) detected!']);
+        setEventLog((prev) => [
+          ...prev,
+          '🚀 New Architecture (TurboModule) detected!',
+        ]);
       } else {
         setArchitectureInfo({
           type: 'Legacy',
-          details: `Legacy Bridge detected on ${Platform.OS}. Using traditional NativeModules.`
+          details: `Legacy Bridge detected on ${Platform.OS}. Using traditional NativeModules.`,
         });
-        setEventLog(prev => [...prev, '📱 Legacy Architecture detected']);
+        setEventLog((prev) => [...prev, '📱 Legacy Architecture detected']);
       }
     } catch (error) {
       setArchitectureInfo({
         type: 'Legacy',
-        details: `Architecture detection failed: ${error}. Assuming Legacy Bridge.`
+        details: `Architecture detection failed: ${error}. Assuming Legacy Bridge.`,
       });
-      setEventLog(prev => [...prev, `⚠️ Architecture detection error: ${error}`]);
+      setEventLog((prev) => [
+        ...prev,
+        `⚠️ Architecture detection error: ${error}`,
+      ]);
     }
   };
 
   const initializeConsent = async () => {
     try {
+      const webViewConfig: WebViewConfig = {
+        position: WebViewPosition.HalfScreenBottom,
+        backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
+        cornerRadius: 25,
+        respectsSafeArea: true,
+        allowsOrientationChanges: true,
+      };
+
+      await CmSdkReactNativeV3.setWebViewConfig(webViewConfig);
+
       await CmSdkReactNativeV3.setUrlConfig({
         id: 'f5e3b73592c3c',
         domain: 'delivery.consentmanager.net',
@@ -172,23 +207,16 @@ const HomeScreen: React.FC = () => {
         noHash: true,
       });
 
-      await CmSdkReactNativeV3.setWebViewConfig({
-        position: 'fullScreen',
-        backgroundStyle: { type: 'dimmed', color: 'black', opacity: 0.5 },
-        cornerRadius: 5,
-        respectsSafeArea: true,
-        allowsOrientationChanges: true,
-      });
-
       // iOS-only: Set ATT status if on iOS
       if (Platform.OS === 'ios') {
-        // ATT status values: 0=notDetermined, 1=restricted, 2=denied, 3=authorized
-        // In a real app, you would get this from AppTrackingTransparency framework
-        await CmSdkReactNativeV3.setATTStatus(0);
+        // ATT status values come from AppTrackingTransparency (0–3). Use enum for clarity.
+        await CmSdkReactNativeV3.setATTStatus(ATTStatus.NotDetermined);
       }
 
       await CmSdkReactNativeV3.checkAndOpen(false);
-      console.log('CMPManager initialized and open consent layer opened if necessary');
+      console.log(
+        'CMPManager initialized and open consent layer opened if necessary'
+      );
     } catch (error) {
       console.error('Error initializing consent:', error);
     } finally {
@@ -214,11 +242,14 @@ const HomeScreen: React.FC = () => {
       const duration = endTime - startTime;
 
       if (methodName) {
-        setPerformanceMetrics(prev => ({
+        setPerformanceMetrics((prev) => ({
           ...prev,
-          [methodName]: duration
+          [methodName]: duration,
         }));
-        setEventLog(prev => [...prev, `⚡ ${methodName}: ${duration}ms (${architectureInfo.type})`]);
+        setEventLog((prev) => [
+          ...prev,
+          `⚡ ${methodName}: ${duration}ms (${architectureInfo.type})`,
+        ]);
       }
 
       showToast(successMessage(result));
@@ -227,7 +258,10 @@ const HomeScreen: React.FC = () => {
       const duration = endTime - startTime;
 
       if (methodName) {
-        setEventLog(prev => [...prev, `❌ ${methodName} failed after ${duration}ms: ${error}`]);
+        setEventLog((prev) => [
+          ...prev,
+          `❌ ${methodName} failed after ${duration}ms: ${error}`,
+        ]);
       }
 
       showToast(`${errorMessage}: ${error}`);
@@ -237,146 +271,165 @@ const HomeScreen: React.FC = () => {
   const buttons = [
     {
       title: 'Get User Status',
-      onPress: () => handleApiCall(
-        CmSdkReactNativeV3.getUserStatus,
-        (result) => `User Status: ${JSON.stringify(result).substring(0, 100)}...`,
-        'Failed to get user status',
-        'getUserStatus'
-      ),
+      onPress: () =>
+        handleApiCall(
+          CmSdkReactNativeV3.getUserStatus,
+          (result) =>
+            `User Status: ${JSON.stringify(result).substring(0, 100)}...`,
+          'Failed to get user status',
+          'getUserStatus'
+        ),
     },
     {
       title: 'Get CMP String',
-      onPress: () => handleApiCall(
-        CmSdkReactNativeV3.exportCMPInfo,
-        (result) => `CMP String: ${result}`,
-        'Failed to export CMP info',
-        'exportCMPInfo'
-      ),
+      onPress: () =>
+        handleApiCall(
+          CmSdkReactNativeV3.exportCMPInfo,
+          (result) => `CMP String: ${result}`,
+          'Failed to export CMP info',
+          'exportCMPInfo'
+        ),
     },
     {
       title: 'Get Status for Purpose c53',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.getStatusForPurpose('c53'),
-        (result) => `Purpose Status: ${result}`,
-        'Failed to get purpose status',
-        'getStatusForPurpose'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.getStatusForPurpose('c53'),
+          (result) => `Purpose Status: ${result}`,
+          'Failed to get purpose status',
+          'getStatusForPurpose'
+        ),
     },
     {
       title: 'Get Status for Vendor s2789',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.getStatusForVendor('s2789'),
-        (result) => `Vendor Status: ${result}`,
-        'Failed to get vendor status',
-        'getStatusForVendor'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.getStatusForVendor('s2789'),
+          (result) => `Vendor Status: ${result}`,
+          'Failed to get vendor status',
+          'getStatusForVendor'
+        ),
     },
     {
       title: 'Get Google Consent Mode Status',
-      onPress: () => handleApiCall(
-        CmSdkReactNativeV3.getGoogleConsentModeStatus,
-        (result) => `Google Consent: ${JSON.stringify(result)}`,
-        'Failed to get Google consent mode',
-        'getGoogleConsentModeStatus'
-      ),
+      onPress: () =>
+        handleApiCall(
+          CmSdkReactNativeV3.getGoogleConsentModeStatus,
+          (result) => `Google Consent: ${JSON.stringify(result)}`,
+          'Failed to get Google consent mode',
+          'getGoogleConsentModeStatus'
+        ),
     },
     {
       title: 'Enable Purposes c52 and c53',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c53'], true),
-        () => 'Purposes enabled',
-        'Failed to enable purposes',
-        'acceptPurposes'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c53'], true),
+          () => 'Purposes enabled',
+          'Failed to enable purposes',
+          'acceptPurposes'
+        ),
     },
     {
       title: 'Disable Purposes c52 and c53',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c53'], true),
-        () => 'Purposes disabled',
-        'Failed to disable purposes',
-        'rejectPurposes'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c53'], true),
+          () => 'Purposes disabled',
+          'Failed to disable purposes',
+          'rejectPurposes'
+        ),
     },
     {
       title: 'Enable Vendors s2790 and s2791',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.acceptVendors(['s2790', 's2791']),
-        () => 'Vendors Enabled',
-        'Failed to enable vendors',
-        'acceptVendors'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.acceptVendors(['s2790', 's2791']),
+          () => 'Vendors Enabled',
+          'Failed to enable vendors',
+          'acceptVendors'
+        ),
     },
     {
       title: 'Disable Vendors s2790 and s2791',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.rejectVendors(['s2790', 's2791']),
-        () => 'Vendors Disabled',
-        'Failed to disable vendors',
-        'rejectVendors'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.rejectVendors(['s2790', 's2791']),
+          () => 'Vendors Disabled',
+          'Failed to disable vendors',
+          'rejectVendors'
+        ),
     },
     {
       title: 'Reject All',
-      onPress: () => handleApiCall(
-        CmSdkReactNativeV3.rejectAll,
-        () => 'All consents rejected',
-        'Failed to reject all',
-        'rejectAll'
-      ),
+      onPress: () =>
+        handleApiCall(
+          CmSdkReactNativeV3.rejectAll,
+          () => 'All consents rejected',
+          'Failed to reject all',
+          'rejectAll'
+        ),
     },
     {
       title: 'Accept All',
-      onPress: () => handleApiCall(
-        CmSdkReactNativeV3.acceptAll,
-        () => 'All consents accepted',
-        'Failed to accept all',
-        'acceptAll'
-      ),
+      onPress: () =>
+        handleApiCall(
+          CmSdkReactNativeV3.acceptAll,
+          () => 'All consents accepted',
+          'Failed to accept all',
+          'acceptAll'
+        ),
     },
     {
       title: 'Check and Open Consent Layer',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.checkAndOpen(false),
-        () => 'Check and Open operation completed'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.checkAndOpen(false),
+          () => 'Check and Open operation completed'
+        ),
     },
     {
       title: 'Check and Open Settings Page',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.checkAndOpen(true),
-        () => 'Settings page opened if needed'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.checkAndOpen(true),
+          () => 'Settings page opened if needed'
+        ),
     },
     {
       title: 'Force Open Consent Layer',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.forceOpen(false),
-        () => 'Consent Layer opened'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.forceOpen(false),
+          () => 'Consent Layer opened'
+        ),
     },
     {
       title: 'Force Open Settings Page',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.forceOpen(true),
-        () => 'Settings page opened'
-      ),
+      onPress: () =>
+        handleApiCall(
+          () => CmSdkReactNativeV3.forceOpen(true),
+          () => 'Settings page opened'
+        ),
     },
     {
       title: 'Import CMP String',
-      onPress: () => handleApiCall(
-        () => CmSdkReactNativeV3.importCMPInfo(
-          'Q1FaRWVQQVFaRWVQQUFmYjRCRU5DQUZnQVBMQUFFTEFBQWlnRjV3QVFGNWdYbkFCQVhtQUFBI181MV81Ml81NF8jX3MxMDUyX3MxX3MyNl9zMjYxMl9zOTA1X3MxNDQ4X2M3MzczN19VXyMxLS0tIw'
+      onPress: () =>
+        handleApiCall(
+          () =>
+            CmSdkReactNativeV3.importCMPInfo(
+              'Q1FaRWVQQVFaRWVQQUFmYjRCRU5DQUZnQVBMQUFFTEFBQWlnRjV3QVFGNWdYbkFCQVhtQUFBI181MV81Ml81NF8jX3MxMDUyX3MxX3MyNl9zMjYxMl9zOTA1X3MxNDQ4X2M3MzczN19VXyMxLS0tIw'
+            ),
+          () => 'New consent string imported successfully'
         ),
-        () => 'New consent string imported successfully'
-      ),
     },
     {
       title: 'Reset all CMP Info',
-      onPress: () => handleApiCall(
-        CmSdkReactNativeV3.resetConsentManagementData,
-        () => 'All consents reset'
-      ),
+      onPress: () =>
+        handleApiCall(
+          CmSdkReactNativeV3.resetConsentManagementData,
+          () => 'All consents reset'
+        ),
     },
   ];
 
@@ -396,9 +449,17 @@ const HomeScreen: React.FC = () => {
         <Text style={styles.subtitle}>New Architecture Compatibility Test</Text>
 
         {/* Architecture Info Section */}
-        <View style={[styles.infoContainer, architectureInfo.type === 'New Architecture' ? styles.newArchContainer : styles.legacyArchContainer]}>
+        <View
+          style={[
+            styles.infoContainer,
+            architectureInfo.type === 'New Architecture'
+              ? styles.newArchContainer
+              : styles.legacyArchContainer,
+          ]}
+        >
           <Text style={styles.infoTitle}>
-            {architectureInfo.type === 'New Architecture' ? '🚀' : '📱'} Architecture: {architectureInfo.type}
+            {architectureInfo.type === 'New Architecture' ? '🚀' : '📱'}{' '}
+            Architecture: {architectureInfo.type}
           </Text>
           <Text style={styles.infoDetails}>{architectureInfo.details}</Text>
         </View>
@@ -406,7 +467,9 @@ const HomeScreen: React.FC = () => {
         {/* Performance Metrics Section */}
         {Object.keys(performanceMetrics).length > 0 && (
           <View style={styles.metricsContainer}>
-            <Text style={styles.metricsTitle}>⚡ Performance Metrics (ms):</Text>
+            <Text style={styles.metricsTitle}>
+              ⚡ Performance Metrics (ms):
+            </Text>
             {Object.entries(performanceMetrics).map(([method, time]) => (
               <Text key={method} style={styles.metricText}>
                 {method}: {time}ms

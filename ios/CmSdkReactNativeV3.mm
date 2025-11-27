@@ -55,6 +55,24 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
     if (config.cornerRadius().has_value()) configDict[@"cornerRadius"] = @(config.cornerRadius().value());
     if (config.respectsSafeArea().has_value()) configDict[@"respectsSafeArea"] = @(config.respectsSafeArea().value());
     if (config.allowsOrientationChanges().has_value()) configDict[@"allowsOrientationChanges"] = @(config.allowsOrientationChanges().value());
+    if (config.customRect()) {
+        auto rect = config.customRect().value();
+        configDict[@"customRect"] = @{
+            @"x": @(rect.x()),
+            @"y": @(rect.y()),
+            @"width": @(rect.width()),
+            @"height": @(rect.height())
+        };
+    }
+    if (config.backgroundStyle()) {
+        auto bg = config.backgroundStyle().value();
+        NSMutableDictionary *bgDict = [NSMutableDictionary new];
+        if (bg.type()) bgDict[@"type"] = bg.type().value();
+        if (bg.color()) bgDict[@"color"] = bg.color().value();
+        if (bg.opacity().has_value()) bgDict[@"opacity"] = @(bg.opacity().value());
+        if (bg.blurEffectStyle()) bgDict[@"blurEffectStyle"] = bg.blurEffectStyle().value();
+        configDict[@"backgroundStyle"] = bgDict;
+    }
     [_implementation setWebViewConfig:configDict resolve:resolve reject:reject];
 }
 

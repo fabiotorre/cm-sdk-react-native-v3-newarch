@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import cm_sdk_ios_v3
 import React
 
@@ -91,35 +92,44 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
 
   @objc
   func setWebViewConfig(_ config: [String: Any], resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      let uiConfig = ConsentLayerUIConfig(
-        position: .fullScreen,
-        backgroundStyle: .dimmed(.black, 0.5),
-          cornerRadius: CGFloat(config["cornerRadius"] as? Double ?? 5),
-          respectsSafeArea: config["respectsSafeArea"] as? Bool ?? true,
-          allowsOrientationChanges: config["allowsOrientationChanges"] as? Bool ?? true
-      )
-      runOnMainThread{
-        self.cmpManager.setWebViewConfig(uiConfig)
-        resolve(nil)
-      }
+    let cornerRadius = CGFloat(config["cornerRadius"] as? Double ?? 5)
+    let respectsSafeArea = config["respectsSafeArea"] as? Bool ?? true
+    let allowsOrientationChanges = config["allowsOrientationChanges"] as? Bool ?? true
+
+    let position = self.mapPosition(config: config, respectsSafeArea: respectsSafeArea)
+    let backgroundStyle = self.mapBackgroundStyle(config: config)
+
+    let uiConfig = ConsentLayerUIConfig(
+      position: position,
+      backgroundStyle: backgroundStyle,
+      cornerRadius: cornerRadius,
+      respectsSafeArea: respectsSafeArea,
+      allowsOrientationChanges: allowsOrientationChanges
+    )
+
+    runOnMainThread{
+      self.cmpManager.setWebViewConfig(uiConfig)
+      resolve(nil)
+    }
   }
 
   @objc
   func setUrlConfig(_ config: [String: Any], resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
     runOnMainThread { [self] in
           do {
-              guard let id = config["id"] as? String,
-                    let domain = config["domain"] as? String,
-                    let language = config["language"] as? String,
-                    let appName = config["appName"] as? String else {
-                  throw NSError(domain: "CmSdkReactNativeV3", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid config parameters"])
-              }
-              print("ID: \(id) - Domain: \(domain)")
+        guard let id = config["id"] as? String,
+              let domain = config["domain"] as? String,
+              let language = config["language"] as? String,
+              let appName = config["appName"] as? String else {
+          throw NSError(domain: "CmSdkReactNativeV3", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid config parameters"])
+        }
+        let noHash = config["noHash"] as? Bool ?? false
+        print("ID: \(id) - Domain: \(domain)")
 
-              let urlConfig = UrlConfig(id: id, domain: domain, language: language, appName: appName)
-              print("urlConfig = \(urlConfig)")
-              self.cmpManager.setUrlConfig(urlConfig)
-              resolve(nil)
+        let urlConfig = UrlConfig(id: id, domain: domain, language: language, appName: appName, jsonConfig: nil, noHash: noHash)
+        print("urlConfig = \(urlConfig)")
+        self.cmpManager.setUrlConfig(urlConfig)
+        resolve(nil)
           } catch {
               reject("ERROR", "Failed to set URL config: \(error.localizedDescription)", error)
           }
@@ -257,5 +267,108 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
   func resetConsentManagementData(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
       self.cmpManager.resetConsentManagementData(completion: { success in resolve(success)})
   }
-}
 
+  // MARK: - Helpers
+
+  private func mapPosition(config: [String: Any], respectsSafeArea: Bool) -> Position {
+    if let positionValue = config["position"] as? String, positionValue == "custom",
+       let rectValue = config["customRect"] as? [String: Any],
+       let rect = rectFromDictionary(rectValue, respectsSafeArea: respectsSafeArea) {
+      return .custom(rect)
+    }
+
+    let insets = currentSafeAreaInsets()
+    let screenBounds = UIScreen.main.bounds
+    let usableHeight = screenBounds.height - (respectsSafeArea ? (insets.top + insets.bottom) : 0)
+    let halfHeight = usableHeight / 2
+
+    guard let positionValue = config["position"] as? String else {
+      return .fullScreen
+    }
+
+    switch positionValue {
+    case "halfScreenTop":
+      let originY = respectsSafeArea ? insets.top : 0
+      return .custom(CGRect(x: 0, y: originY, width: screenBounds.width, height: halfHeight))
+    case "halfScreenBottom":
+      let originY = (respectsSafeArea ? insets.top : 0) + halfHeight
+      return .custom(CGRect(x: 0, y: originY, width: screenBounds.width, height: halfHeight))
+    default:
+      return .fullScreen
+    }
+  }
+
+  private func mapBackgroundStyle(config: [String: Any]) -> BackgroundStyle {
+    guard let backgroundConfig = config["backgroundStyle"] as? [String: Any],
+          let type = backgroundConfig["type"] as? String else {
+      return .dimmed(.black, 0.5)
+    }
+
+    switch type {
+    case "dimmed":
+      let colorInput = backgroundConfig["color"] ?? "black"
+      let color = RCTConvert.uiColor(colorInput) ?? .black
+      let opacity = CGFloat(backgroundConfig["opacity"] as? Double ?? 0.5)
+      return .dimmed(color, opacity)
+    case "color":
+      let colorInput = backgroundConfig["color"] ?? "black"
+      let color = RCTConvert.uiColor(colorInput) ?? .black
+      return .color(color)
+    case "blur":
+      let styleString = backgroundConfig["blurEffectStyle"] as? String ?? "dark"
+      let blurStyle: UIBlurEffect.Style
+      switch styleString {
+      case "extraLight": blurStyle = .extraLight
+      case "light": blurStyle = .light
+      default: blurStyle = .dark
+      }
+      return .blur(blurStyle)
+    case "none":
+      return .none
+    default:
+      return .dimmed(.black, 0.5)
+    }
+  }
+
+  private func rectFromDictionary(_ dict: [String: Any], respectsSafeArea: Bool) -> CGRect? {
+    guard
+      let x = dict["x"] as? Double,
+      let y = dict["y"] as? Double,
+      let width = dict["width"] as? Double,
+      let height = dict["height"] as? Double
+    else {
+      return nil
+    }
+
+    let insets = respectsSafeArea ? currentSafeAreaInsets() : .zero
+    return CGRect(
+      x: CGFloat(x) + insets.left,
+      y: CGFloat(y) + insets.top,
+      width: CGFloat(width) - (insets.left + insets.right),
+      height: CGFloat(height) - (insets.top + insets.bottom)
+    )
+  }
+
+  private func currentSafeAreaInsets() -> UIEdgeInsets {
+    var insets: UIEdgeInsets = .zero
+    let work = {
+      if #available(iOS 13.0, *) {
+        let windowScene = UIApplication.shared.connectedScenes
+          .compactMap { $0 as? UIWindowScene }
+          .first { $0.activationState == .foregroundActive }
+        let window = windowScene?.windows.first { $0.isKeyWindow }
+        insets = window?.safeAreaInsets ?? .zero
+      } else {
+        insets = UIApplication.shared.keyWindow?.safeAreaInsets ?? .zero
+      }
+    }
+
+    if Thread.isMainThread {
+      work()
+    } else {
+      DispatchQueue.main.sync { work() }
+    }
+
+    return insets
+  }
+}

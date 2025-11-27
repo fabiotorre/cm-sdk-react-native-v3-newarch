@@ -30,16 +30,57 @@ export type UrlConfig = {
   noHash?: boolean;
 };
 
+export enum WebViewPosition {
+  FullScreen = 'fullScreen',
+  HalfScreenTop = 'halfScreenTop',
+  HalfScreenBottom = 'halfScreenBottom',
+  Custom = 'custom',
+}
+
+export type WebViewRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export enum BackgroundStyleType {
+  Dimmed = 'dimmed',
+  Color = 'color',
+  Blur = 'blur',
+  None = 'none',
+}
+
+export enum BlurEffectStyle {
+  Light = 'light',
+  Dark = 'dark',
+  ExtraLight = 'extraLight',
+}
+
+export enum ATTStatus {
+  NotDetermined = 0,
+  Restricted = 1,
+  Denied = 2,
+  Authorized = 3,
+}
+
+export type WebViewBackgroundStyle =
+  | {
+      type: BackgroundStyleType.Dimmed;
+      color?: string | number;
+      opacity?: number;
+    }
+  | { type: BackgroundStyleType.Color; color: string | number }
+  | { type: BackgroundStyleType.Blur; blurEffectStyle?: BlurEffectStyle }
+  | { type: BackgroundStyleType.None };
+
 export type WebViewConfig = {
-  position?: string;
+  position?: WebViewPosition;
+  customRect?: WebViewRect;
   cornerRadius?: number;
   respectsSafeArea?: boolean;
   allowsOrientationChanges?: boolean;
-  backgroundStyle?: {
-    type?: string;
-    color?: string;
-    opacity?: number;
-  };
+  backgroundStyle?: WebViewBackgroundStyle;
 };
 
 export type UserStatus = {
@@ -56,7 +97,7 @@ export type GoogleConsentModeStatus = Object;
 export interface Spec extends TurboModule {
   // Configuration methods
   setUrlConfig(config: UrlConfig): Promise<void>;
-  
+
   setWebViewConfig(config: WebViewConfig): Promise<void>;
 
   // iOS-only ATT status method
@@ -68,7 +109,7 @@ export interface Spec extends TurboModule {
 
   // Consent status methods
   getUserStatus(): Promise<UserStatus>;
-  
+
   getStatusForPurpose(purposeId: string): Promise<string>;
   getStatusForVendor(vendorId: string): Promise<string>;
   getGoogleConsentModeStatus(): Promise<GoogleConsentModeStatus>;

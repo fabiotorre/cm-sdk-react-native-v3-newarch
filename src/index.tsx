@@ -1,4 +1,9 @@
-import { NativeModules, Platform, NativeEventEmitter } from 'react-native';
+import {
+  NativeModules,
+  Platform,
+  NativeEventEmitter,
+  processColor,
+} from 'react-native';
 import NativeCmSdkReactNativeV3, {
   type ConsentReceivedEvent,
   type ErrorEvent,
@@ -6,6 +11,12 @@ import NativeCmSdkReactNativeV3, {
   type ATTStatusChangeEvent,
   type UrlConfig,
   type WebViewConfig,
+  type WebViewRect,
+  type WebViewBackgroundStyle,
+  WebViewPosition,
+  BackgroundStyleType,
+  BlurEffectStyle,
+  ATTStatus,
   type UserStatus,
   type GoogleConsentModeStatus,
 } from './NativeCmSdkReactNativeV3';
@@ -17,16 +28,18 @@ const LINKING_ERROR =
   '- You are not using Expo Go\n';
 
 // Use TurboModule if available (New Architecture), fallback to legacy NativeModules
-const CmSdkReactNativeV3 = NativeCmSdkReactNativeV3 ?? (NativeModules.CmSdkReactNativeV3
-  ? NativeModules.CmSdkReactNativeV3
-  : new Proxy(
-      {},
-      {
-        get() {
-          throw new Error(LINKING_ERROR);
-        },
-      }
-    ));
+const CmSdkReactNativeV3 =
+  NativeCmSdkReactNativeV3 ??
+  (NativeModules.CmSdkReactNativeV3
+    ? NativeModules.CmSdkReactNativeV3
+    : new Proxy(
+        {},
+        {
+          get() {
+            throw new Error(LINKING_ERROR);
+          },
+        }
+      ));
 
 export const isTurboModuleEnabled = NativeCmSdkReactNativeV3 != null;
 
@@ -35,9 +48,12 @@ const eventEmitter = new NativeEventEmitter(CmSdkReactNativeV3);
 export const addConsentListener = (
   callback: (consent: string, jsonObject: Object) => void
 ) => {
-  return eventEmitter.addListener('didReceiveConsent', (event: ConsentReceivedEvent) => {
-    callback(event.consent, event.jsonObject);
-  });
+  return eventEmitter.addListener(
+    'didReceiveConsent',
+    (event: ConsentReceivedEvent) => {
+      callback(event.consent, event.jsonObject);
+    }
+  );
 };
 
 export const addShowConsentLayerListener = (callback: () => void) => {
@@ -60,7 +76,9 @@ export const addClickLinkListener = (callback: (url: string) => void) => {
   });
 };
 
-export const addATTStatusChangeListener = (callback: (event: ATTStatusChangeEvent) => void) => {
+export const addATTStatusChangeListener = (
+  callback: (event: ATTStatusChangeEvent) => void
+) => {
   return eventEmitter.addListener('didChangeATTStatus', callback);
 };
 
@@ -70,10 +88,22 @@ export const setUrlConfig = (config: UrlConfig): Promise<void> => {
 };
 
 export const setWebViewConfig = (config: WebViewConfig): Promise<void> => {
-  return CmSdkReactNativeV3.setWebViewConfig(config);
+  const normalized = normalizeWebViewConfig(config);
+  return CmSdkReactNativeV3.setWebViewConfig(normalized);
 };
 
-export const setATTStatus = (status: number): Promise<void> => {
+export const setATTStatus = (status: ATTStatus | number): Promise<void> => {
+  const allowed = new Set<ATTStatus>([
+    ATTStatus.NotDetermined,
+    ATTStatus.Restricted,
+    ATTStatus.Denied,
+    ATTStatus.Authorized,
+  ]);
+  if (!allowed.has(status as ATTStatus)) {
+    throw new Error(
+      `[cm-sdk-react-native-v3-newarch] Invalid ATT status ${status}. Use ATTStatus enum (0–3 from Apple's ATTrackingManagerAuthorizationStatus).`
+    );
+  }
   return CmSdkReactNativeV3.setATTStatus(status);
 };
 
@@ -91,6 +121,105 @@ export const getUserStatus = (): Promise<UserStatus> => {
   return CmSdkReactNativeV3.getUserStatus();
 };
 
+// Helpers
+const normalizeWebViewConfig = (config: WebViewConfig): WebViewConfig => {
+  const position =
+    (config.position as WebViewPosition | undefined) ??
+    WebViewPosition.FullScreen;
+  const allowedPositions = [
+    WebViewPosition.FullScreen,
+    WebViewPosition.HalfScreenTop,
+    WebViewPosition.HalfScreenBottom,
+    WebViewPosition.Custom,
+  ];
+  if (!allowedPositions.includes(position)) {
+    throw new Error(`Invalid WebView position: ${position}`);
+  }
+
+  if (position === WebViewPosition.Custom) {
+    if (!config.customRect) {
+      throw new Error('customRect is required when position is "custom"');
+    }
+    if (Platform.OS === 'android') {
+      console.warn(
+        '[cm-sdk-react-native-v3-newarch] Android native SDK currently ignores customRect/position "custom"; it will fall back to full screen.'
+      );
+    }
+  }
+
+  const backgroundStyle = (() => {
+    if (!config.backgroundStyle) {
+      return {
+        type: BackgroundStyleType.Dimmed,
+        color: normalizeColor('black'),
+        opacity: 0.5,
+      } as WebViewBackgroundStyle;
+    }
+    const { type } = config.backgroundStyle;
+    switch (type) {
+      case BackgroundStyleType.Dimmed:
+        return {
+          type,
+          color: normalizeColor(config.backgroundStyle.color ?? 'black'),
+          opacity: config.backgroundStyle.opacity ?? 0.5,
+        } as WebViewBackgroundStyle;
+      case BackgroundStyleType.Color:
+        if (!config.backgroundStyle.color)
+          throw new Error('color is required for backgroundStyle "color"');
+        return {
+          type,
+          color: normalizeColor(config.backgroundStyle.color),
+        } as WebViewBackgroundStyle;
+      case BackgroundStyleType.Blur: {
+        const blurStyle =
+          config.backgroundStyle.blurEffectStyle ??
+          (Platform.OS === 'ios' ? BlurEffectStyle.Dark : BlurEffectStyle.Dark);
+        if (
+          blurStyle !== BlurEffectStyle.Dark &&
+          blurStyle !== BlurEffectStyle.Light &&
+          blurStyle !== BlurEffectStyle.ExtraLight
+        ) {
+          throw new Error(`Invalid blurEffectStyle: ${blurStyle}`);
+        }
+        if (Platform.OS === 'android') {
+          console.warn(
+            '[cm-sdk-react-native-v3-newarch] Android native SDK currently ignores blur backgrounds; using dimmed.'
+          );
+        }
+        return { type, blurEffectStyle: blurStyle } as WebViewBackgroundStyle;
+      }
+      case BackgroundStyleType.None:
+        return { type } as WebViewBackgroundStyle;
+      default:
+        throw new Error(
+          `Invalid backgroundStyle type: ${(config.backgroundStyle as any).type}`
+        );
+    }
+  })();
+
+  if (Platform.OS === 'android' && config.backgroundStyle) {
+    console.warn(
+      '[cm-sdk-react-native-v3-newarch] Android native SDK currently ignores backgroundStyle overrides; it always uses a dimmed background.'
+    );
+  }
+
+  return {
+    position,
+    customRect: config.customRect,
+    cornerRadius: config.cornerRadius ?? 5,
+    respectsSafeArea: config.respectsSafeArea ?? true,
+    allowsOrientationChanges: config.allowsOrientationChanges ?? true,
+    backgroundStyle,
+  };
+};
+
+const normalizeColor = (color: string | number | undefined) => {
+  if (color === undefined) return undefined;
+  const processed = processColor(color);
+  if (processed == null) throw new Error(`Invalid color value: ${color}`);
+  return processed;
+};
+
 export const getStatusForPurpose = (purposeId: string): Promise<string> => {
   return CmSdkReactNativeV3.getStatusForPurpose(purposeId);
 };
@@ -99,9 +228,10 @@ export const getStatusForVendor = (vendorId: string): Promise<string> => {
   return CmSdkReactNativeV3.getStatusForVendor(vendorId);
 };
 
-export const getGoogleConsentModeStatus = (): Promise<GoogleConsentModeStatus> => {
-  return CmSdkReactNativeV3.getGoogleConsentModeStatus();
-};
+export const getGoogleConsentModeStatus =
+  (): Promise<GoogleConsentModeStatus> => {
+    return CmSdkReactNativeV3.getGoogleConsentModeStatus();
+  };
 
 export const exportCMPInfo = (): Promise<string> => {
   return CmSdkReactNativeV3.exportCMPInfo();
@@ -124,11 +254,17 @@ export const rejectVendors = (vendors: string[]): Promise<boolean> => {
   return CmSdkReactNativeV3.rejectVendors(vendors);
 };
 
-export const acceptPurposes = (purposes: string[], updatePurpose: boolean): Promise<boolean> => {
+export const acceptPurposes = (
+  purposes: string[],
+  updatePurpose: boolean
+): Promise<boolean> => {
   return CmSdkReactNativeV3.acceptPurposes(purposes, updatePurpose);
 };
 
-export const rejectPurposes = (purposes: string[], updateVendor: boolean): Promise<boolean> => {
+export const rejectPurposes = (
+  purposes: string[],
+  updateVendor: boolean
+): Promise<boolean> => {
   return CmSdkReactNativeV3.rejectPurposes(purposes, updateVendor);
 };
 
@@ -168,9 +304,39 @@ export type {
   LinkClickEvent,
   ATTStatusChangeEvent,
   UrlConfig,
+  WebViewRect,
+  WebViewBackgroundStyle,
   WebViewConfig,
   UserStatus,
   GoogleConsentModeStatus,
 };
+
+// Re-export enums/constants for consumers
+export { WebViewPosition, BackgroundStyleType, BlurEffectStyle, ATTStatus };
+
+/**
+ * Helper factory to build strongly-typed background styles.
+ */
+export const BackgroundStyle = {
+  dimmed: (
+    color?: string | number,
+    opacity?: number
+  ): WebViewBackgroundStyle => ({
+    type: BackgroundStyleType.Dimmed,
+    color,
+    opacity,
+  }),
+  color: (color: string | number): WebViewBackgroundStyle => ({
+    type: BackgroundStyleType.Color,
+    color,
+  }),
+  blur: (
+    blurEffectStyle: BlurEffectStyle = BlurEffectStyle.Dark
+  ): WebViewBackgroundStyle => ({
+    type: BackgroundStyleType.Blur,
+    blurEffectStyle,
+  }),
+  none: (): WebViewBackgroundStyle => ({ type: BackgroundStyleType.None }),
+} as const;
 
 export default CmSdkReactNativeV3;

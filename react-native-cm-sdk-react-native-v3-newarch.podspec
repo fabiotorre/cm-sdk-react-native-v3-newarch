@@ -13,6 +13,11 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => "13.4" }
   s.source       = { :git => "https://github.com/iubenda/cm-sdk-react-native-v3.git", :tag => "#{s.version}" }
 
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'SWIFT_COMPILATION_MODE' => 'wholemodule'
+  }
+
   s.source_files = "ios/**/*.{h,m,mm,swift}"
   s.dependency "cm-sdk-ios-v3", "3.6.0"
 
