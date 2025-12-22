@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)checkAndOpen:(BOOL)jumpToSettings resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)forceOpen:(BOOL)jumpToSettings resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)getUserStatus:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)isConsentRequired:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)getStatusForPurpose:(NSString *)purposeId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)getStatusForVendor:(NSString *)vendorId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)getGoogleConsentModeStatus:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;

@@ -1,6 +1,6 @@
 {
   "name": "cm-sdk-react-native-v3-new-arch",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Consent Management React Native Library by consentmanager.net",
   "source": "./src/index.tsx",
   "main": "./lib/commonjs/index.js",

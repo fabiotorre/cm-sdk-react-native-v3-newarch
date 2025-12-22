@@ -122,6 +122,11 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
   [_implementation getUserStatus:resolve reject:reject];
 }
 
+- (void)isConsentRequired:(RCTPromiseResolveBlock)resolve
+                   reject:(RCTPromiseRejectBlock)reject {
+  [_implementation isConsentRequired:resolve reject:reject];
+}
+
 - (void)getStatusForPurpose:(NSString *)purposeId
                     resolve:(RCTPromiseResolveBlock)resolve
                      reject:(RCTPromiseRejectBlock)reject {

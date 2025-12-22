@@ -25,6 +25,7 @@ import CmSdkReactNativeV3, {
   type WebViewConfig,
   isNewArchitectureEnabled,
   isTurboModuleEnabled,
+  isConsentRequired,
 } from 'cm-sdk-react-native-v3-new-arch';
 
 const HomeScreen: React.FC = () => {
@@ -189,13 +190,85 @@ const HomeScreen: React.FC = () => {
 
   const initializeConsent = async () => {
     try {
+      // ============================================
+      // CONSENT LAYER UI CONFIGURATION EXAMPLES
+      // ============================================
+      // Uncomment ONE configuration to test different layouts and styles
+
+      // 1. FULL SCREEN with blur background (iOS only, Android uses dimmed)
+      // const webViewConfig: WebViewConfig = {
+      //   position: WebViewPosition.FullScreen,
+      //   backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
+      //   cornerRadius: 0, // Ignored for full screen
+      //   respectsSafeArea: true,
+      //   allowsOrientationChanges: true,
+      // };
+
+      // 2. FULL SCREEN with dimmed background
+      // const webViewConfig: WebViewConfig = {
+      //   position: WebViewPosition.FullScreen,
+      //   backgroundStyle: BackgroundStyle.dimmed('black', 0.7),
+      //   cornerRadius: 0,
+      //   respectsSafeArea: true,
+      //   allowsOrientationChanges: true,
+      // };
+
+      // 3. HALF SCREEN BOTTOM with blur background (currently active)
+//       const webViewConfig: WebViewConfig = {
+//         position: WebViewPosition.HalfScreenBottom,
+//         backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
+//         cornerRadius: 20,
+//         respectsSafeArea: true,
+//         allowsOrientationChanges: true,
+//       };
+
+      // 4. HALF SCREEN BOTTOM with dimmed background
       const webViewConfig: WebViewConfig = {
-        position: WebViewPosition.FullScreen,
-        backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
+        position: WebViewPosition.HalfScreenBottom,
+        backgroundStyle: BackgroundStyle.dimmed('black', 0.5),
         cornerRadius: 25,
         respectsSafeArea: true,
         allowsOrientationChanges: true,
       };
+
+      // 5. HALF SCREEN TOP with solid color background
+      // const webViewConfig: WebViewConfig = {
+      //   position: WebViewPosition.HalfScreenTop,
+      //   backgroundStyle: BackgroundStyle.color('rgba(0, 0, 0, 0.8)'),
+      //   cornerRadius: 15,
+      //   respectsSafeArea: true,
+      //   allowsOrientationChanges: true,
+      // };
+
+      // 6. HALF SCREEN TOP with no background
+      // const webViewConfig: WebViewConfig = {
+      //   position: WebViewPosition.HalfScreenTop,
+      //   backgroundStyle: BackgroundStyle.none(),
+      //   cornerRadius: 30,
+      //   respectsSafeArea: true,
+      //   allowsOrientationChanges: true,
+      // };
+
+      // 7. CUSTOM POSITION with blur background (iOS only, Android falls back to full screen)
+      // Note: x, y, width, height in points for iOS
+      // const webViewConfig: WebViewConfig = {
+      //   position: WebViewPosition.Custom,
+      //   customRect: { x: 20, y: 100, width: 350, height: 500 },
+      //   backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.ExtraLight),
+      //   cornerRadius: 12,
+      //   respectsSafeArea: false,
+      //   allowsOrientationChanges: false,
+      // };
+
+      // 8. CUSTOM POSITION centered with dimmed background
+      // const webViewConfig: WebViewConfig = {
+      //   position: WebViewPosition.Custom,
+      //   customRect: { x: 50, y: 200, width: 300, height: 400 },
+      //   backgroundStyle: BackgroundStyle.dimmed('blue', 0.3),
+      //   cornerRadius: 20,
+      //   respectsSafeArea: true,
+      //   allowsOrientationChanges: true,
+      // };
 
       await CmSdkReactNativeV3.setWebViewConfig(webViewConfig);
 
@@ -213,10 +286,10 @@ const HomeScreen: React.FC = () => {
         await CmSdkReactNativeV3.setATTStatus(ATTStatus.NotDetermined);
       }
 
-      await CmSdkReactNativeV3.checkAndOpen(false);
-      console.log(
-        'CMPManager initialized and open consent layer opened if necessary'
-      );
+//       await CmSdkReactNativeV3.checkAndOpen(false);
+//       console.log(
+//         'CMPManager initialized and open consent layer opened if necessary'
+//       );
     } catch (error) {
       console.error('Error initializing consent:', error);
     } finally {
@@ -278,6 +351,16 @@ const HomeScreen: React.FC = () => {
             `User Status: ${JSON.stringify(result).substring(0, 100)}...`,
           'Failed to get user status',
           'getUserStatus'
+        ),
+    },
+    {
+      title: 'Is Consent Required',
+      onPress: () =>
+        handleApiCall(
+          isConsentRequired,
+          (result) => `Consent is required? ${result}`,
+          'Failed to check if consent is required',
+          'isConsentRequired'
         ),
     },
     {

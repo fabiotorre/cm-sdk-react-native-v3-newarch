@@ -109,6 +109,7 @@ export interface Spec extends TurboModule {
 
   // Consent status methods
   getUserStatus(): Promise<UserStatus>;
+  isConsentRequired(): Promise<boolean>;
 
   getStatusForPurpose(purposeId: string): Promise<string>;
   getStatusForVendor(vendorId: string): Promise<string>;

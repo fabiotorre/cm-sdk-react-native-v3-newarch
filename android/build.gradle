@@ -96,7 +96,7 @@ dependencies {
   //noinspection GradleDynamicVersion
   implementation "com.facebook.react:react-native:+"
   implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-  implementation "net.consentmanager.sdkv3:cmsdkv3:3.7.0"
+  implementation "net.consentmanager.sdkv3:cmsdkv3:3.8.0"
 }
 
 tasks.withType(JavaCompile) {
