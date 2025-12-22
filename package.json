@@ -46,7 +46,17 @@
   "keywords": [
     "react-native",
     "ios",
-    "android"
+    "android",
+    "consent",
+    "gdpr",
+    "ccpa",
+    "cmp",
+    "privacy",
+    "turbomodule",
+    "new-architecture",
+    "consent-management",
+    "iab-tcf",
+    "google-consent-mode"
   ],
   "repository": {
     "type": "git",
@@ -88,13 +98,6 @@
     "example"
   ],
   "packageManager": "yarn@3.6.1",
-  "jest": {
-    "preset": "react-native",
-    "modulePathIgnorePatterns": [
-      "<rootDir>/example/node_modules",
-      "<rootDir>/lib/"
-    ]
-  },
   "commitlint": {
     "extends": [
       "@commitlint/config-conventional"

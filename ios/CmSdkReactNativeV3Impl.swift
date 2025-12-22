@@ -3,6 +3,23 @@ import UIKit
 import cm_sdk_ios_v3
 import React
 
+// MARK: - Debug Logging
+
+/// Set to `true` to enable debug logging during development.
+/// Should be `false` for production builds.
+private let kCMPDebugLoggingEnabled = false
+
+private func CMPLog(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+  #if DEBUG
+  if kCMPDebugLoggingEnabled {
+    let filename = (file as NSString).lastPathComponent
+    print("[CMP] \(filename):\(line) \(function): \(message)")
+  }
+  #endif
+}
+
+// MARK: - Implementation
+
 @objc(CmSdkReactNativeV3Impl)
 class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
   private let cmpManager: CMPManager
@@ -22,11 +39,11 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
       let urlString = url.absoluteString
       
       guard let strongSelf = self, strongSelf.shouldHandleLinkClicks else {
-        print("CmSdkReactNativeV3: Allowing navigation during SDK initialization: \(urlString)")
+        CMPLog("Allowing navigation during SDK initialization: \(urlString)")
         return false
       }
       
-      print("CmSdkReactNativeV3: Link clicked: \(urlString)")
+      CMPLog("Link clicked: \(urlString)")
       strongSelf.sendEvent(name: "onClickLink", body: ["url": urlString])
       
       if !urlString.contains("google.com") ||
@@ -72,7 +89,7 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
       shouldHandleLinkClicks = false
       sendEvent(name: "didCloseConsentLayer", body: nil)
     } else {
-      print("CmSdkReactNativeV3: Ignoring didCloseConsentLayer - consent layer was not shown")
+      CMPLog("Ignoring didCloseConsentLayer - consent layer was not shown")
     }
   }
 
@@ -124,10 +141,10 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
           throw NSError(domain: "CmSdkReactNativeV3", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid config parameters"])
         }
         let noHash = config["noHash"] as? Bool ?? false
-        print("ID: \(id) - Domain: \(domain)")
+        CMPLog("Setting URL config - ID: \(id), Domain: \(domain)")
 
         let urlConfig = UrlConfig(id: id, domain: domain, language: language, appName: appName, jsonConfig: nil, noHash: noHash)
-        print("urlConfig = \(urlConfig)")
+        CMPLog("URL config created: \(urlConfig)")
         self.cmpManager.setUrlConfig(urlConfig)
         resolve(nil)
           } catch {

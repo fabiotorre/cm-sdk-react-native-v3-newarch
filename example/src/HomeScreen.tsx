@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   SafeAreaView,
@@ -19,7 +19,6 @@ import CmSdkReactNativeV3, {
   addErrorListener,
   addClickLinkListener,
   BackgroundStyle,
-  BlurEffectStyle,
   ATTStatus,
   WebViewPosition,
   type WebViewConfig,
@@ -28,26 +27,90 @@ import CmSdkReactNativeV3, {
   isConsentRequired,
 } from 'cm-sdk-react-native-v3-new-arch';
 
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
+
+/** CMP configuration - replace with your own values */
+const CMP_CONFIG = {
+  id: 'f5e3b73592c3c', // Replace this by your own Code-ID
+  domain: 'delivery.consentmanager.net',
+  language: 'EN',
+  appName: 'CMDemoAppReactNative',
+  noHash: true,
+} as const;
+
+/** Default WebView configuration */
+const DEFAULT_WEBVIEW_CONFIG: WebViewConfig = {
+  position: WebViewPosition.HalfScreenBottom,
+  backgroundStyle: BackgroundStyle.dimmed('black', 0.5),
+  cornerRadius: 25,
+  respectsSafeArea: true,
+  allowsOrientationChanges: true,
+};
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+interface ArchitectureInfo {
+  type: 'Legacy' | 'New Architecture';
+  details: string;
+}
+
+interface ButtonConfig {
+  title: string;
+  onPress: () => void;
+}
+
+// =============================================================================
+// COMPONENT
+// =============================================================================
+
 const HomeScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [eventLog, setEventLog] = useState<string[]>([]);
-  const [architectureInfo, setArchitectureInfo] = useState<{
-    type: 'Legacy' | 'New Architecture';
-    details: string;
-  }>({ type: 'Legacy', details: 'Detecting...' });
-  const [performanceMetrics, setPerformanceMetrics] = useState<{
-    [key: string]: number;
-  }>({});
+  const [architectureInfo, setArchitectureInfo] = useState<ArchitectureInfo>({
+    type: 'Legacy',
+    details: 'Detecting...',
+  });
+  const [performanceMetrics, setPerformanceMetrics] = useState<
+    Record<string, number>
+  >({});
 
-  // Set up event listeners
+  // Toast timeout ref for cleanup
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // =============================================================================
+  // Toast with proper cleanup
+  // =============================================================================
+  const showToast = useCallback((message: string) => {
+    // Clear existing timeout
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToastMessage(message);
+    toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 2000);
+  }, []);
+
+  // Cleanup toast timeout on unmount
   useEffect(() => {
-    // Store the event subscriptions so we can clean up later
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // =============================================================================
+  // Event Listeners Setup
+  // =============================================================================
+  useEffect(() => {
     const subscriptions: EmitterSubscription[] = [];
 
-    // Set up consent event listener
     subscriptions.push(
-      addConsentListener((consent: string, _jsonObject: any) => {
+      addConsentListener((consent: string, _data: Record<string, unknown>) => {
         const message = `Consent received: ${consent.substring(0, 20)}...`;
         console.log(message);
         setEventLog((prev) => [...prev, message]);
@@ -55,7 +118,6 @@ const HomeScreen: React.FC = () => {
       })
     );
 
-    // Set up show consent layer listener
     subscriptions.push(
       addShowConsentLayerListener(() => {
         const message = 'Consent layer shown';
@@ -65,7 +127,6 @@ const HomeScreen: React.FC = () => {
       })
     );
 
-    // Set up close consent layer listener
     subscriptions.push(
       addCloseConsentLayerListener(() => {
         const message = 'Consent layer closed';
@@ -75,7 +136,6 @@ const HomeScreen: React.FC = () => {
       })
     );
 
-    // Set up error listener
     subscriptions.push(
       addErrorListener((error: string) => {
         const message = `Error: ${error}`;
@@ -85,7 +145,6 @@ const HomeScreen: React.FC = () => {
       })
     );
 
-    // Set up link click listener with conditional handling
     subscriptions.push(
       addClickLinkListener((url: string) => {
         const message = `Link clicked: ${url}`;
@@ -95,67 +154,34 @@ const HomeScreen: React.FC = () => {
         if (url.includes('glitch')) {
           Alert.alert(
             'External Link Detected',
-            `Opening Google URL in external browser: ${url}`,
+            `Opening URL in external browser: ${url}`,
             [
-              {
-                text: 'Cancel',
-                style: 'cancel',
-                onPress: () => {
-                  showToast('Link opening cancelled');
-                  setEventLog((prev) => [
-                    ...prev,
-                    'Google link cancelled by user',
-                  ]);
-                },
-              },
+              { text: 'Cancel', style: 'cancel' },
               {
                 text: 'Open',
                 onPress: () => {
-                  Linking.openURL(url)
-                    .then(() => {
-                      showToast('Google link opened in external browser');
-                      setEventLog((prev) => [
-                        ...prev,
-                        'Google link opened externally',
-                      ]);
-                    })
-                    .catch((error) => {
-                      console.error('Error opening URL:', error);
-                      showToast('Failed to open Google link');
-                      setEventLog((prev) => [
-                        ...prev,
-                        `Error opening Google link: ${error.message}`,
-                      ]);
-                    });
+                  Linking.openURL(url).catch((err) =>
+                    console.error('Error opening URL:', err)
+                  );
                 },
               },
             ]
           );
         } else {
-          // For other URLs, just show a toast and let WebView handle them
-          showToast(
-            `Other link detected: ${url.substring(0, 50)}${url.length > 50 ? '...' : ''}`
-          );
-          setEventLog((prev) => [
-            ...prev,
-            'Other link will be handled by WebView',
-          ]);
+          showToast(`Link: ${url.substring(0, 50)}${url.length > 50 ? '...' : ''}`);
         }
       })
     );
 
-    // Clean up listeners when component unmounts
     return () => {
-      subscriptions.forEach((subscription) => subscription.remove());
+      subscriptions.forEach((sub) => sub.remove());
     };
-  }, []);
+  }, [showToast]);
 
-  useEffect(() => {
-    detectArchitecture();
-    initializeConsent();
-  }, []);
-
-  const detectArchitecture = () => {
+  // =============================================================================
+  // Architecture Detection
+  // =============================================================================
+  const detectArchitecture = useCallback(() => {
     try {
       const isNewArch = isNewArchitectureEnabled();
       const hasTurboModule = isTurboModuleEnabled;
@@ -163,192 +189,95 @@ const HomeScreen: React.FC = () => {
       if (isNewArch || hasTurboModule) {
         setArchitectureInfo({
           type: 'New Architecture',
-          details: `TurboModule detected on ${Platform.OS}. Enhanced performance and type safety enabled. (TurboModule: ${hasTurboModule}, NewArch: ${isNewArch})`,
+          details: `TurboModule on ${Platform.OS}. (TM: ${hasTurboModule}, NA: ${isNewArch})`,
         });
-        setEventLog((prev) => [
-          ...prev,
-          '🚀 New Architecture (TurboModule) detected!',
-        ]);
+        setEventLog((prev) => [...prev, '🚀 New Architecture detected!']);
       } else {
         setArchitectureInfo({
           type: 'Legacy',
-          details: `Legacy Bridge detected on ${Platform.OS}. Using traditional NativeModules.`,
+          details: `Legacy Bridge on ${Platform.OS}.`,
         });
         setEventLog((prev) => [...prev, '📱 Legacy Architecture detected']);
       }
     } catch (error) {
       setArchitectureInfo({
         type: 'Legacy',
-        details: `Architecture detection failed: ${error}. Assuming Legacy Bridge.`,
+        details: `Detection failed: ${error}`,
       });
-      setEventLog((prev) => [
-        ...prev,
-        `⚠️ Architecture detection error: ${error}`,
-      ]);
     }
-  };
+  }, []);
 
-  const initializeConsent = async () => {
+  // =============================================================================
+  // CMP Initialization
+  // =============================================================================
+  const initializeConsent = useCallback(async () => {
     try {
-      // ============================================
-      // CONSENT LAYER UI CONFIGURATION EXAMPLES
-      // ============================================
-      // Uncomment ONE configuration to test different layouts and styles
+      await CmSdkReactNativeV3.setWebViewConfig(DEFAULT_WEBVIEW_CONFIG);
+      await CmSdkReactNativeV3.setUrlConfig(CMP_CONFIG);
 
-      // 1. FULL SCREEN with blur background (iOS only, Android uses dimmed)
-      // const webViewConfig: WebViewConfig = {
-      //   position: WebViewPosition.FullScreen,
-      //   backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
-      //   cornerRadius: 0, // Ignored for full screen
-      //   respectsSafeArea: true,
-      //   allowsOrientationChanges: true,
-      // };
-
-      // 2. FULL SCREEN with dimmed background
-      // const webViewConfig: WebViewConfig = {
-      //   position: WebViewPosition.FullScreen,
-      //   backgroundStyle: BackgroundStyle.dimmed('black', 0.7),
-      //   cornerRadius: 0,
-      //   respectsSafeArea: true,
-      //   allowsOrientationChanges: true,
-      // };
-
-      // 3. HALF SCREEN BOTTOM with blur background (currently active)
-//       const webViewConfig: WebViewConfig = {
-//         position: WebViewPosition.HalfScreenBottom,
-//         backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
-//         cornerRadius: 20,
-//         respectsSafeArea: true,
-//         allowsOrientationChanges: true,
-//       };
-
-      // 4. HALF SCREEN BOTTOM with dimmed background
-      const webViewConfig: WebViewConfig = {
-        position: WebViewPosition.HalfScreenBottom,
-        backgroundStyle: BackgroundStyle.dimmed('black', 0.5),
-        cornerRadius: 25,
-        respectsSafeArea: true,
-        allowsOrientationChanges: true,
-      };
-
-      // 5. HALF SCREEN TOP with solid color background
-      // const webViewConfig: WebViewConfig = {
-      //   position: WebViewPosition.HalfScreenTop,
-      //   backgroundStyle: BackgroundStyle.color('rgba(0, 0, 0, 0.8)'),
-      //   cornerRadius: 15,
-      //   respectsSafeArea: true,
-      //   allowsOrientationChanges: true,
-      // };
-
-      // 6. HALF SCREEN TOP with no background
-      // const webViewConfig: WebViewConfig = {
-      //   position: WebViewPosition.HalfScreenTop,
-      //   backgroundStyle: BackgroundStyle.none(),
-      //   cornerRadius: 30,
-      //   respectsSafeArea: true,
-      //   allowsOrientationChanges: true,
-      // };
-
-      // 7. CUSTOM POSITION with blur background (iOS only, Android falls back to full screen)
-      // Note: x, y, width, height in points for iOS
-      // const webViewConfig: WebViewConfig = {
-      //   position: WebViewPosition.Custom,
-      //   customRect: { x: 20, y: 100, width: 350, height: 500 },
-      //   backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.ExtraLight),
-      //   cornerRadius: 12,
-      //   respectsSafeArea: false,
-      //   allowsOrientationChanges: false,
-      // };
-
-      // 8. CUSTOM POSITION centered with dimmed background
-      // const webViewConfig: WebViewConfig = {
-      //   position: WebViewPosition.Custom,
-      //   customRect: { x: 50, y: 200, width: 300, height: 400 },
-      //   backgroundStyle: BackgroundStyle.dimmed('blue', 0.3),
-      //   cornerRadius: 20,
-      //   respectsSafeArea: true,
-      //   allowsOrientationChanges: true,
-      // };
-
-      await CmSdkReactNativeV3.setWebViewConfig(webViewConfig);
-
-      await CmSdkReactNativeV3.setUrlConfig({
-        id: 'f5e3b73592c3c',
-        domain: 'delivery.consentmanager.net',
-        language: 'EN',
-        appName: 'CMDemoAppReactNative',
-        noHash: true,
-      });
-
-      // iOS-only: Set ATT status if on iOS
       if (Platform.OS === 'ios') {
-        // ATT status values come from AppTrackingTransparency (0–3). Use enum for clarity.
         await CmSdkReactNativeV3.setATTStatus(ATTStatus.NotDetermined);
       }
-
-//       await CmSdkReactNativeV3.checkAndOpen(false);
-//       console.log(
-//         'CMPManager initialized and open consent layer opened if necessary'
-//       );
     } catch (error) {
       console.error('Error initializing consent:', error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const showToast = (message: string) => {
-    setToastMessage(message);
-    setTimeout(() => setToastMessage(null), 2000);
-  };
+  useEffect(() => {
+    detectArchitecture();
+    initializeConsent();
+  }, [detectArchitecture, initializeConsent]);
 
-  const handleApiCall = async (
-    apiCall: () => Promise<any>,
-    successMessage: (result: any) => string,
-    errorMessage: string = 'An error occurred',
-    methodName?: string
-  ) => {
-    const startTime = Date.now();
-    try {
-      const result = await apiCall();
-      const endTime = Date.now();
-      const duration = endTime - startTime;
+  // =============================================================================
+  // API Call Handler with Performance Tracking
+  // =============================================================================
+  const handleApiCall = useCallback(
+    async (
+      apiCall: () => Promise<unknown>,
+      successMessage: (result: unknown) => string,
+      errorMessage = 'An error occurred',
+      methodName?: string
+    ) => {
+      const startTime = Date.now();
+      try {
+        const result = await apiCall();
+        const duration = Date.now() - startTime;
 
-      if (methodName) {
-        setPerformanceMetrics((prev) => ({
-          ...prev,
-          [methodName]: duration,
-        }));
-        setEventLog((prev) => [
-          ...prev,
-          `⚡ ${methodName}: ${duration}ms (${architectureInfo.type})`,
-        ]);
+        if (methodName) {
+          setPerformanceMetrics((prev) => ({ ...prev, [methodName]: duration }));
+          setEventLog((prev) => [
+            ...prev,
+            `⚡ ${methodName}: ${duration}ms (${architectureInfo.type})`,
+          ]);
+        }
+
+        showToast(successMessage(result));
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        if (methodName) {
+          setEventLog((prev) => [
+            ...prev,
+            `❌ ${methodName} failed after ${duration}ms: ${error}`,
+          ]);
+        }
+        showToast(`${errorMessage}: ${error}`);
       }
+    },
+    [architectureInfo.type, showToast]
+  );
 
-      showToast(successMessage(result));
-    } catch (error) {
-      const endTime = Date.now();
-      const duration = endTime - startTime;
-
-      if (methodName) {
-        setEventLog((prev) => [
-          ...prev,
-          `❌ ${methodName} failed after ${duration}ms: ${error}`,
-        ]);
-      }
-
-      showToast(`${errorMessage}: ${error}`);
-    }
-  };
-
-  const buttons = [
+  // =============================================================================
+  // Button Configurations
+  // =============================================================================
+  const buttons: ButtonConfig[] = [
     {
       title: 'Get User Status',
       onPress: () =>
         handleApiCall(
           CmSdkReactNativeV3.getUserStatus,
-          (result) =>
-            `User Status: ${JSON.stringify(result).substring(0, 100)}...`,
+          (r) => `Status: ${JSON.stringify(r).substring(0, 100)}...`,
           'Failed to get user status',
           'getUserStatus'
         ),
@@ -358,8 +287,8 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           isConsentRequired,
-          (result) => `Consent is required? ${result}`,
-          'Failed to check if consent is required',
+          (r) => `Consent required: ${r}`,
+          'Failed to check consent',
           'isConsentRequired'
         ),
     },
@@ -368,8 +297,8 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           CmSdkReactNativeV3.exportCMPInfo,
-          (result) => `CMP String: ${result}`,
-          'Failed to export CMP info',
+          (r) => `CMP: ${r}`,
+          'Failed to export CMP',
           'exportCMPInfo'
         ),
     },
@@ -378,8 +307,8 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.getStatusForPurpose('c53'),
-          (result) => `Purpose Status: ${result}`,
-          'Failed to get purpose status',
+          (r) => `Purpose: ${r}`,
+          'Failed',
           'getStatusForPurpose'
         ),
     },
@@ -388,58 +317,58 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.getStatusForVendor('s2789'),
-          (result) => `Vendor Status: ${result}`,
-          'Failed to get vendor status',
+          (r) => `Vendor: ${r}`,
+          'Failed',
           'getStatusForVendor'
         ),
     },
     {
-      title: 'Get Google Consent Mode Status',
+      title: 'Google Consent Mode',
       onPress: () =>
         handleApiCall(
           CmSdkReactNativeV3.getGoogleConsentModeStatus,
-          (result) => `Google Consent: ${JSON.stringify(result)}`,
-          'Failed to get Google consent mode',
+          (r) => `GCM: ${JSON.stringify(r)}`,
+          'Failed',
           'getGoogleConsentModeStatus'
         ),
     },
     {
-      title: 'Enable Purposes c52 and c53',
+      title: 'Accept Purposes c52, c53',
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c53'], true),
-          () => 'Purposes enabled',
-          'Failed to enable purposes',
+          () => 'Purposes accepted',
+          'Failed',
           'acceptPurposes'
         ),
     },
     {
-      title: 'Disable Purposes c52 and c53',
+      title: 'Reject Purposes c52, c53',
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c53'], true),
-          () => 'Purposes disabled',
-          'Failed to disable purposes',
+          () => 'Purposes rejected',
+          'Failed',
           'rejectPurposes'
         ),
     },
     {
-      title: 'Enable Vendors s2790 and s2791',
+      title: 'Accept Vendors s2790 and s2791',
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.acceptVendors(['s2790', 's2791']),
-          () => 'Vendors Enabled',
-          'Failed to enable vendors',
+          () => 'Vendors accepted',
+          'Failed',
           'acceptVendors'
         ),
     },
     {
-      title: 'Disable Vendors s2790 and s2791',
+      title: 'Reject Vendors s2790 and s2791',
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.rejectVendors(['s2790', 's2791']),
-          () => 'Vendors Disabled',
-          'Failed to disable vendors',
+          () => 'Vendors rejected',
+          'Failed',
           'rejectVendors'
         ),
     },
@@ -448,8 +377,8 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           CmSdkReactNativeV3.rejectAll,
-          () => 'All consents rejected',
-          'Failed to reject all',
+          () => 'All rejected',
+          'Failed',
           'rejectAll'
         ),
     },
@@ -458,8 +387,8 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           CmSdkReactNativeV3.acceptAll,
-          () => 'All consents accepted',
-          'Failed to accept all',
+          () => 'All accepted',
+          'Failed',
           'acceptAll'
         ),
     },
@@ -468,7 +397,7 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.checkAndOpen(false),
-          () => 'Check and Open operation completed'
+          () => 'Check completed'
         ),
     },
     {
@@ -476,7 +405,7 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.checkAndOpen(true),
-          () => 'Settings page opened if needed'
+          () => 'Settings opened'
         ),
     },
     {
@@ -484,7 +413,7 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.forceOpen(false),
-          () => 'Consent Layer opened'
+          () => 'Layer opened'
         ),
     },
     {
@@ -492,30 +421,22 @@ const HomeScreen: React.FC = () => {
       onPress: () =>
         handleApiCall(
           () => CmSdkReactNativeV3.forceOpen(true),
-          () => 'Settings page opened'
+          () => 'Settings opened'
         ),
     },
     {
-      title: 'Import CMP String',
-      onPress: () =>
-        handleApiCall(
-          () =>
-            CmSdkReactNativeV3.importCMPInfo(
-              'Q1FaRWVQQVFaRWVQQUFmYjRCRU5DQUZnQVBMQUFFTEFBQWlnRjV3QVFGNWdYbkFCQVhtQUFBI181MV81Ml81NF8jX3MxMDUyX3MxX3MyNl9zMjYxMl9zOTA1X3MxNDQ4X2M3MzczN19VXyMxLS0tIw'
-            ),
-          () => 'New consent string imported successfully'
-        ),
-    },
-    {
-      title: 'Reset all CMP Info',
+      title: 'Reset CMP Data',
       onPress: () =>
         handleApiCall(
           CmSdkReactNativeV3.resetConsentManagementData,
-          () => 'All consents reset'
+          () => 'Data reset'
         ),
     },
   ];
 
+  // =============================================================================
+  // Render
+  // =============================================================================
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -528,10 +449,10 @@ const HomeScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.title}>CM React Native DemoApp v3.6.0</Text>
-        <Text style={styles.subtitle}>New Architecture Compatibility Test</Text>
+        <Text style={styles.title}>CM React Native Demo</Text>
+        <Text style={styles.subtitle}>New Architecture Test</Text>
 
-        {/* Architecture Info Section */}
+        {/* Architecture Info */}
         <View
           style={[
             styles.infoContainer,
@@ -542,17 +463,15 @@ const HomeScreen: React.FC = () => {
         >
           <Text style={styles.infoTitle}>
             {architectureInfo.type === 'New Architecture' ? '🚀' : '📱'}{' '}
-            Architecture: {architectureInfo.type}
+            {architectureInfo.type}
           </Text>
           <Text style={styles.infoDetails}>{architectureInfo.details}</Text>
         </View>
 
-        {/* Performance Metrics Section */}
+        {/* Performance Metrics */}
         {Object.keys(performanceMetrics).length > 0 && (
           <View style={styles.metricsContainer}>
-            <Text style={styles.metricsTitle}>
-              ⚡ Performance Metrics (ms):
-            </Text>
+            <Text style={styles.metricsTitle}>⚡ Performance (ms):</Text>
             {Object.entries(performanceMetrics).map(([method, time]) => (
               <Text key={method} style={styles.metricText}>
                 {method}: {time}ms
@@ -561,15 +480,15 @@ const HomeScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Event Logger Section */}
+        {/* Event Log */}
         <View style={styles.eventLogContainer}>
           <Text style={styles.eventLogTitle}>Event Log:</Text>
           <ScrollView style={styles.eventLogScrollView}>
             {eventLog.length === 0 ? (
-              <Text style={styles.noEventsText}>No events received yet</Text>
+              <Text style={styles.noEventsText}>No events yet</Text>
             ) : (
-              eventLog.map((event, index) => (
-                <Text key={index} style={styles.eventText}>
+              eventLog.map((event, idx) => (
+                <Text key={`event-${idx}-${event.substring(0, 10)}`} style={styles.eventText}>
                   {event}
                 </Text>
               ))
@@ -577,9 +496,10 @@ const HomeScreen: React.FC = () => {
           </ScrollView>
         </View>
 
-        {buttons.map((button, index) => (
+        {/* Action Buttons */}
+        {buttons.map((button) => (
           <TouchableOpacity
-            key={index}
+            key={button.title}
             style={styles.button}
             onPress={button.onPress}
           >
@@ -587,6 +507,8 @@ const HomeScreen: React.FC = () => {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      {/* Toast */}
       {toastMessage && (
         <View style={styles.toast}>
           <Text style={styles.toastText}>{toastMessage}</Text>
@@ -595,6 +517,10 @@ const HomeScreen: React.FC = () => {
     </SafeAreaView>
   );
 };
+
+// =============================================================================
+// STYLES
+// =============================================================================
 
 const styles = StyleSheet.create({
   container: {

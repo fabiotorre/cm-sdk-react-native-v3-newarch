@@ -1,78 +1,245 @@
-# consentmanager CMP SDK - New Architecture
+# consentmanager SDK for React Native (New Architecture)
 
-# cm-sdk-react-native-v3-newarch
+[![npm version](https://badge.fury.io/js/cm-sdk-react-native-v3-new-arch.svg)](https://www.npmjs.com/package/cm-sdk-react-native-v3-new-arch)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-cm-sdk-react-native-v3-newarch is a comprehensive Consent Management Platform (CMP) SDK bridge for React Native with **New Architecture support only**.
+A comprehensive Consent Management Platform (CMP) SDK bridge for React Native with **New Architecture (TurboModules) support**.
 
-## ✨ New Architecture (TurboModules)
+## Features
 
-**Version 4.1.0 - New Architecture ONLY**
-
-- ✅ **Full TurboModule implementation** with proper protocol conformance
-- ✅ **React Native 0.74+** required
-- ✅ **Bridgeless mode** compatible
-- ✅ **Type safety** with automatic code generation
-- ⚠️ **No backward compatibility** - For legacy architecture, use v3.x
+- Full TurboModule implementation with proper protocol conformance
+- Complete TypeScript support with comprehensive type definitions
+- Google Consent Mode v2 compatible
+- Customizable consent layer UI (position, background styles, blur effects)
+- Event-driven architecture for consent state changes
+- iOS ATT (App Tracking Transparency) integration
 
 ## Requirements
 
-- React Native 0.74 or higher
-- New Architecture enabled (`RCT_NEW_ARCH_ENABLED=1`)
-- iOS 13.4+
-- Android minSdkVersion 24+
+| Platform | Minimum Version |
+|----------|----------------|
+| React Native | 0.74+ |
+| iOS | 13.4+ |
+| Android | SDK 24+ (Android 7.0) |
+
+> **Note**: This package requires New Architecture enabled (`RCT_NEW_ARCH_ENABLED=1`). For legacy architecture support, use version 3.x.
 
 ## Installation
 
 ```bash
-npm install cm-sdk-react-native-v3-newarch
-# or
-yarn add cm-sdk-react-native-v3-newarch
+# Using npm
+npm install cm-sdk-react-native-v3-new-arch
+
+# Using yarn
+yarn add cm-sdk-react-native-v3-new-arch
 ```
 
-## UI Configuration
+### iOS Setup
 
-The SDK provides comprehensive options to customize the consent layer appearance:
+```bash
+cd ios && pod install
+```
 
-### Positions
-- **FullScreen**: Covers the entire screen
-- **HalfScreenBottom**: Covers the bottom half of the screen
-- **HalfScreenTop**: Covers the top half of the screen
-- **Custom**: Custom position with specific frame (iOS only, Android falls back to FullScreen)
+### Android Setup
 
-### Background Styles
-- **Dimmed**: Semi-transparent color overlay with configurable color and opacity
-- **Blur**: iOS system blur effect (ExtraLight, Light, Dark) - iOS only, Android uses dimmed
-- **Color**: Solid color background
-- **None**: No background styling
+No additional setup required. The library uses auto-linking.
 
-### Example
+## Quick Start
+
 ```typescript
 import CmSdkReactNativeV3, {
+  addConsentListener,
+  addErrorListener,
+  setUrlConfig,
+  setWebViewConfig,
   WebViewPosition,
   BackgroundStyle,
-  BlurEffectStyle,
-  type WebViewConfig,
+  ATTStatus,
 } from 'cm-sdk-react-native-v3-new-arch';
 
-const webViewConfig: WebViewConfig = {
+// 1. Configure the CMP
+await setUrlConfig({
+  id: 'your-cmp-id',
+  domain: 'delivery.consentmanager.net',
+  language: 'EN',
+  appName: 'YourAppName',
+});
+
+// 2. Customize the consent layer UI
+await setWebViewConfig({
   position: WebViewPosition.HalfScreenBottom,
-  backgroundStyle: BackgroundStyle.blur(BlurEffectStyle.Dark),
+  backgroundStyle: BackgroundStyle.blur(),
   cornerRadius: 20,
   respectsSafeArea: true,
-  allowsOrientationChanges: true,
-};
+});
 
-await CmSdkReactNativeV3.setWebViewConfig(webViewConfig);
+// 3. Set up event listeners
+const consentSubscription = addConsentListener((consent, data) => {
+  console.log('Consent received:', consent);
+});
+
+// 4. Check and open consent layer if needed
+await CmSdkReactNativeV3.checkAndOpen(false);
+
+// Clean up on unmount
+consentSubscription.remove();
 ```
 
-For more examples, check `example/src/HomeScreen.tsx` which includes 8 different UI configurations.
+## API Reference
 
-## Important Notes
+### Configuration
 
-This version (4.x) is a **breaking change** that requires New Architecture. If you need to support the old architecture, please use version 3.x instead.
+#### `setUrlConfig(config: UrlConfig): Promise<void>`
 
-For further information, please refer to [our documentation](https://help.consentmanager.net/books/cmp/chapter/integration-into-your-app---v3)
+Configures the CMP endpoint.
+
+```typescript
+type UrlConfig = {
+  id: string;        // Your CMP ID
+  domain: string;    // CMP delivery domain
+  language: string;  // ISO 639-1 language code
+  appName: string;   // Your application name
+  noHash?: boolean;  // Disable URL hashing
+};
+```
+
+#### `setWebViewConfig(config: WebViewConfig): Promise<void>`
+
+Customizes the consent layer appearance.
+
+```typescript
+type WebViewConfig = {
+  position?: WebViewPosition;
+  customRect?: WebViewRect;
+  cornerRadius?: number;
+  respectsSafeArea?: boolean;
+  allowsOrientationChanges?: boolean;
+  backgroundStyle?: WebViewBackgroundStyle;
+};
+```
+
+### Positions
+
+| Position | Description |
+|----------|-------------|
+| `WebViewPosition.FullScreen` | Covers the entire screen |
+| `WebViewPosition.HalfScreenTop` | Top half of the screen |
+| `WebViewPosition.HalfScreenBottom` | Bottom half of the screen |
+| `WebViewPosition.Custom` | Custom position (iOS only) |
+
+### Background Styles
+
+```typescript
+// Semi-transparent overlay
+BackgroundStyle.dimmed(color?: string, opacity?: number)
+
+// Solid color background
+BackgroundStyle.color(color: string)
+
+// iOS blur effect (falls back to dimmed on Android)
+BackgroundStyle.blur(style?: BlurEffectStyle)
+
+// No background
+BackgroundStyle.none()
+```
+
+### Consent Methods
+
+| Method | Description |
+|--------|-------------|
+| `checkAndOpen(jumpToSettings)` | Opens consent layer if consent is needed |
+| `forceOpen(jumpToSettings)` | Always opens consent layer |
+| `acceptAll()` | Accepts all consent options |
+| `rejectAll()` | Rejects all consent options |
+| `acceptVendors(ids)` | Accepts specific vendors |
+| `rejectVendors(ids)` | Rejects specific vendors |
+| `acceptPurposes(ids, updatePurpose)` | Accepts specific purposes |
+| `rejectPurposes(ids, updateVendor)` | Rejects specific purposes |
+
+### Status Methods
+
+| Method | Returns |
+|--------|---------|
+| `getUserStatus()` | `Promise<UserStatus>` |
+| `isConsentRequired()` | `Promise<boolean>` |
+| `getStatusForPurpose(id)` | `Promise<string>` |
+| `getStatusForVendor(id)` | `Promise<string>` |
+| `getGoogleConsentModeStatus()` | `Promise<GoogleConsentModeStatus>` |
+
+### Event Listeners
+
+```typescript
+// Consent received
+addConsentListener((consent: string, data: Record<string, unknown>) => void)
+
+// Consent layer shown
+addShowConsentLayerListener(() => void)
+
+// Consent layer closed
+addCloseConsentLayerListener(() => void)
+
+// Error occurred
+addErrorListener((error: string) => void)
+
+// Link clicked in consent layer
+addClickLinkListener((url: string) => void)
+
+// ATT status changed (iOS only)
+addATTStatusChangeListener((event: ATTStatusChangeEvent) => void)
+```
+
+### iOS ATT Integration
+
+```typescript
+import { setATTStatus, ATTStatus } from 'cm-sdk-react-native-v3-new-arch';
+
+// After requesting ATT permission
+const status = await requestTrackingPermission();
+await setATTStatus(
+  status === 'authorized' ? ATTStatus.Authorized : ATTStatus.Denied
+);
+```
+
+## Troubleshooting
+
+### Module not found
+
+Ensure you've run `pod install` after installation:
+
+```bash
+cd ios && pod install
+```
+
+### New Architecture not enabled
+
+Add to your `gradle.properties`:
+
+```properties
+newArchEnabled=true
+```
+
+For iOS, ensure `RCT_NEW_ARCH_ENABLED=1` is set in your Podfile.
+
+### Consent layer not showing
+
+1. Verify your CMP configuration is correct
+2. Check that `checkAndOpen` is being called
+3. Listen for errors using `addErrorListener`
+
+## Example App
+
+See the [example directory](./example) for a complete demo application showcasing all features.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-CMPManager is available under the MIT license. See the LICENSE file for more info.
+MIT - see [LICENSE](./LICENSE) for details.
+
+## Links
+
+- [Documentation](https://help.consentmanager.net/books/cmp/chapter/integration-into-your-app---v3)
+- [npm Package](https://www.npmjs.com/package/cm-sdk-react-native-v3-new-arch)
+- [GitHub Repository](https://github.com/iubenda/cm-sdk-react-native-v3)
