@@ -41,13 +41,20 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
 - (void)setUrlConfig:(JS::NativeCmSdkReactNativeV3::UrlConfig &)config
              resolve:(RCTPromiseResolveBlock)resolve
               reject:(RCTPromiseRejectBlock)reject {
-  NSDictionary *configDict = @{
+  NSMutableDictionary *configDict = [@{
     @"id" : config.id_(),
     @"domain" : config.domain(),
     @"language" : config.language(),
     @"appName" : config.appName(),
     @"noHash" : config.noHash().has_value() ? @(config.noHash().value()) : @NO
-  };
+  } mutableCopy];
+  if (config.jsonConfig())
+    configDict[@"jsonConfig"] = config.jsonConfig();
+  if (config.webViewConnectionTimeoutMillis().has_value())
+    configDict[@"webViewConnectionTimeoutMillis"] =
+        @(config.webViewConnectionTimeoutMillis().value());
+  if (config.forceRegulation())
+    configDict[@"forceRegulation"] = config.forceRegulation();
   [_implementation setUrlConfig:configDict resolve:resolve reject:reject];
 }
 
@@ -64,6 +71,10 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
   if (config.allowsOrientationChanges().has_value())
     configDict[@"allowsOrientationChanges"] =
         @(config.allowsOrientationChanges().value());
+  if (config.darkMode().has_value())
+    configDict[@"darkMode"] = @(config.darkMode().value());
+  if (config.navigationBarColor().has_value())
+    configDict[@"navigationBarColor"] = @(config.navigationBarColor().value());
   if (config.customRect().has_value()) {
     auto rect = config.customRect().value();
     configDict[@"customRect"] = @{
@@ -91,6 +102,10 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
         bgDict[@"opacity"] = bgStyle[@"opacity"];
       if (bgStyle[@"blurEffectStyle"])
         bgDict[@"blurEffectStyle"] = bgStyle[@"blurEffectStyle"];
+      if (bgStyle[@"fallbackColor"])
+        bgDict[@"fallbackColor"] = bgStyle[@"fallbackColor"];
+      if (bgStyle[@"fallbackOpacity"])
+        bgDict[@"fallbackOpacity"] = bgStyle[@"fallbackOpacity"];
     }
     configDict[@"backgroundStyle"] = bgDict;
   }
@@ -200,6 +215,51 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
 - (void)acceptAll:(RCTPromiseResolveBlock)resolve
            reject:(RCTPromiseRejectBlock)reject {
   [_implementation acceptAll:resolve reject:reject];
+}
+
+- (void)setAutomaticConsentUpdatesEnabled:(BOOL)enabled
+                                  resolve:(RCTPromiseResolveBlock)resolve
+                                   reject:(RCTPromiseRejectBlock)reject {
+  [_implementation setAutomaticConsentUpdatesEnabled:enabled
+                                             resolve:resolve
+                                              reject:reject];
+}
+
+- (void)updateThirdPartyConsent:(RCTPromiseResolveBlock)resolve
+                         reject:(RCTPromiseRejectBlock)reject {
+  [_implementation updateThirdPartyConsent:resolve reject:reject];
+}
+
+- (void)configureAutomaticFirebaseConsentUpdates:(BOOL)enabled
+                                         resolve:(RCTPromiseResolveBlock)resolve
+                                          reject:(RCTPromiseRejectBlock)reject {
+  [_implementation configureAutomaticFirebaseConsentUpdates:enabled
+                                                    resolve:resolve
+                                                     reject:reject];
+}
+
+- (void)setAutomaticFirebaseConsentUpdatesEnabled:(BOOL)enabled
+                                          resolve:(RCTPromiseResolveBlock)resolve
+                                           reject:(RCTPromiseRejectBlock)reject {
+  [_implementation setAutomaticFirebaseConsentUpdatesEnabled:enabled
+                                                     resolve:resolve
+                                                      reject:reject];
+}
+
+- (void)isAutomaticFirebaseConsentUpdatesEnabled:(RCTPromiseResolveBlock)resolve
+                                          reject:(RCTPromiseRejectBlock)reject {
+  [_implementation isAutomaticFirebaseConsentUpdatesEnabled:resolve
+                                                     reject:reject];
+}
+
+- (void)updateFirebaseConsent:(RCTPromiseResolveBlock)resolve
+                       reject:(RCTPromiseRejectBlock)reject {
+  [_implementation updateFirebaseConsent:resolve reject:reject];
+}
+
+- (void)isFirebaseAnalyticsAvailable:(RCTPromiseResolveBlock)resolve
+                              reject:(RCTPromiseRejectBlock)reject {
+  [_implementation isFirebaseAnalyticsAvailable:resolve reject:reject];
 }
 
 - (void)addListener:(NSString *)eventName {

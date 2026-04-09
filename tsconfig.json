@@ -3,7 +3,8 @@
     "rootDir": ".",
     "paths": {
       "react-native-cm-sdk-react-native-v3": ["./src/index"],
-      "cm-sdk-react-native-v3": ["./src/index"]
+      "cm-sdk-react-native-v3": ["./src/index"],
+      "cm-sdk-react-native-v3-new-arch": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

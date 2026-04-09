@@ -303,20 +303,20 @@ const HomeScreen: React.FC = () => {
         ),
     },
     {
-      title: 'Get Status for Purpose c53',
+      title: 'Get Status for Purpose c54',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.getStatusForPurpose('c53'),
+          () => CmSdkReactNativeV3.getStatusForPurpose('c54'),
           (r) => `Purpose: ${r}`,
           'Failed',
           'getStatusForPurpose'
         ),
     },
     {
-      title: 'Get Status for Vendor s2789',
+      title: 'Get Status for Vendor s2612',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.getStatusForVendor('s2789'),
+          () => CmSdkReactNativeV3.getStatusForVendor('s2612'),
           (r) => `Vendor: ${r}`,
           'Failed',
           'getStatusForVendor'
@@ -333,20 +333,20 @@ const HomeScreen: React.FC = () => {
         ),
     },
     {
-      title: 'Accept Purposes c52, c53',
+      title: 'Accept Purposes c52, c54',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c53'], true),
+          () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c54'], true),
           () => 'Purposes accepted',
           'Failed',
           'acceptPurposes'
         ),
     },
     {
-      title: 'Reject Purposes c52, c53',
+      title: 'Reject Purposes c52, c54',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c53'], true),
+          () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c54'], true),
           () => 'Purposes rejected',
           'Failed',
           'rejectPurposes'
