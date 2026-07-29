@@ -160,11 +160,55 @@ BackgroundStyle.none()
 
 | Method | Returns |
 |--------|---------|
+| `resolveConsent()` | `Promise<ConsentResolution>` |
 | `getUserStatus()` | `Promise<UserStatus>` |
 | `isConsentRequired()` | `Promise<boolean>` |
 | `getStatusForPurpose(id)` | `Promise<string>` |
 | `getStatusForVendor(id)` | `Promise<string>` |
 | `getGoogleConsentModeStatus()` | `Promise<GoogleConsentModeStatus>` |
+
+### Cold start and read cost
+
+Each consent getter costs a full CMP page load in the underlying native SDK, so
+the number of calls you make matters more than which ones you pick.
+
+**Read everything from one snapshot.** `getUserStatus()` already returns
+`purposes`, `vendors`, `tcf`, `addtlConsent` and `regulation`, so reading N
+purposes with `getStatusForPurpose()` costs N page loads where one snapshot would
+have done:
+
+```typescript
+// Costs one page load, gives you everything.
+const { consentRequired, regulation, userStatus } = await resolveConsent();
+const analytics = userStatus.purposes.c52 ?? 'choiceDoesntExist';
+
+// Costs one page load per call. Avoid on a hot path or during startup.
+const analyticsAgain = await getStatusForPurpose('c52');
+```
+
+**Don't read before the first resolution.** On a cold install nothing has been
+resolved yet, so `getUserStatus()` returns empty values — including an empty
+`regulation` — and still pays for a page load. Resolve first, then read.
+
+**Don't hold the splash on the resolution.** Start it during boot, keep the
+promise, and await it only where the consent decision is made. The CMP round trip
+then overlaps with the rest of your startup instead of extending it:
+
+```typescript
+await setWebViewConfig({ position: WebViewPosition.HalfScreenBottom });
+await setUrlConfig({ id: '...', domain: '...', language: 'EN', appName: 'MyApp' });
+
+// Kick off, but do not await here.
+const consent = resolveConsent();
+
+// ... render your app ...
+
+// Await where the banner decision actually happens.
+const { consentRequired, regulation } = await consent;
+if (consentRequired) {
+  await checkAndOpen(false);
+}
+```
 
 ### Event Listeners
 

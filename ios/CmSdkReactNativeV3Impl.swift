@@ -61,11 +61,16 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
     eventEmitter?.sendEvent(withName: name, body: body)
   }
   
+  /// Hops to the main thread without blocking the caller.
+  ///
+  /// TurboModule promise methods run on a serial queue that React Native shares
+  /// across every Objective-C module, so a blocking hop here stalls this module
+  /// and every other one behind it while the main thread is busy during launch.
   private func runOnMainThread(_ block: @escaping () -> Void) {
     if Thread.isMainThread {
         block()
     } else {
-        DispatchQueue.main.sync(execute: block)
+        DispatchQueue.main.async(execute: block)
     }
   }
 
@@ -115,20 +120,19 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
     let allowsOrientationChanges = config["allowsOrientationChanges"] as? Bool ?? true
     let darkMode = config["darkMode"] as? Bool ?? false
 
-    let position = self.mapPosition(config: config, respectsSafeArea: respectsSafeArea)
-    let backgroundStyle = self.mapBackgroundStyle(config: config)
+    // mapPosition and mapBackgroundStyle read UIKit (screen bounds, safe area
+    // insets, colors), so they have to run on the main thread.
+    runOnMainThread { [self] in
+      let uiConfig = ConsentLayerUIConfig(
+        position: mapPosition(config: config, respectsSafeArea: respectsSafeArea),
+        backgroundStyle: mapBackgroundStyle(config: config),
+        cornerRadius: cornerRadius,
+        respectsSafeArea: respectsSafeArea,
+        allowsOrientationChanges: allowsOrientationChanges,
+        darkMode: darkMode
+      )
 
-    let uiConfig = ConsentLayerUIConfig(
-      position: position,
-      backgroundStyle: backgroundStyle,
-      cornerRadius: cornerRadius,
-      respectsSafeArea: respectsSafeArea,
-      allowsOrientationChanges: allowsOrientationChanges,
-      darkMode: darkMode
-    )
-
-    runOnMainThread{
-      self.cmpManager.setWebViewConfig(uiConfig)
+      cmpManager.setWebViewConfig(uiConfig)
       resolve(nil)
     }
   }
