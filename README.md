@@ -169,26 +169,33 @@ BackgroundStyle.none()
 
 ### Cold start and read cost
 
-Each consent getter costs a full CMP page load in the underlying native SDK, so
-the number of calls you make matters more than which ones you pick.
+Not all of these calls cost the same. `isConsentRequired()`, `checkAndOpen()` and
+`forceOpen()` drive the CMP WebView and pay a network round trip. The status
+getters — `getUserStatus()`, `getStatusForPurpose()`, `getStatusForVendor()` —
+read state the native SDK already holds, so they are comparatively cheap.
 
-**Read everything from one snapshot.** `getUserStatus()` already returns
-`purposes`, `vendors`, `tcf`, `addtlConsent` and `regulation`, so reading N
-purposes with `getStatusForPurpose()` costs N page loads where one snapshot would
-have done:
+Measured on an iPhone 16 Pro simulator, cold install, EU/GDPR, against a CMP
+endpoint answering in ~160 ms: `isConsentRequired()` 1.2 s median,
+`getUserStatus()` ~50 ms, launch to visible banner 2.7 s. Most of
+`isConsentRequired()` is spent inside the SDK and WebView after the network has
+already completed, so a slower device or connection scales it up sharply.
+
+**Budget for one resolution, not several.** `resolveConsent()` exists to give you
+the verdict and a full snapshot together, in that order, from a single round trip:
 
 ```typescript
-// Costs one page load, gives you everything.
-const { consentRequired, regulation, userStatus } = await resolveConsent();
+const { consentRequired, userStatus } = await resolveConsent();
 const analytics = userStatus.purposes.c52 ?? 'choiceDoesntExist';
-
-// Costs one page load per call. Avoid on a hot path or during startup.
-const analyticsAgain = await getStatusForPurpose('c52');
 ```
 
-**Don't read before the first resolution.** On a cold install nothing has been
-resolved yet, so `getUserStatus()` returns empty values — including an empty
-`regulation` — and still pays for a page load. Resolve first, then read.
+Reading individual purposes with `getStatusForPurpose()` is not expensive, but it
+tells you nothing `userStatus.purposes` does not already contain.
+
+**Do not branch on `regulation` at resolution time.** On a cold install the field
+is an empty string even when `isConsentRequired()` returns `true` and the server
+resolved GDPR. This is the native SDK's behaviour and this wrapper passes it
+through unchanged, so treat an empty value as "unknown" rather than "no
+regulation", and do not use it to choose between GDPR and CCPA UI.
 
 **Don't hold the splash on the resolution.** Start it during boot, keep the
 promise, and await it only where the consent decision is made. The CMP round trip
@@ -204,7 +211,7 @@ const consent = resolveConsent();
 // ... render your app ...
 
 // Await where the banner decision actually happens.
-const { consentRequired, regulation } = await consent;
+const { consentRequired } = await consent;
 if (consentRequired) {
   await checkAndOpen(false);
 }

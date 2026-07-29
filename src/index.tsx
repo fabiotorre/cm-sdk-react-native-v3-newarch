@@ -330,20 +330,26 @@ export const isConsentRequired = (): Promise<boolean> => {
 export type ConsentResolution = {
   /** True when the consent layer still needs to be shown. */
   consentRequired: boolean;
-  /** Regulation resolved for this user, e.g. `GDPR` or `CCPA`. Empty when unresolved. */
+  /**
+   * Regulation reported by the native SDK, e.g. `GDPR` or `CCPA`.
+   *
+   * Empty in practice at this point in the lifecycle: on a cold install the
+   * native SDK reports an empty string even when `consentRequired` is true and
+   * the server resolved a regulation. Treat empty as unknown, not as "none".
+   */
   regulation: string;
   /** Snapshot taken after the resolution completed. */
   userStatus: UserStatus;
 };
 
 /**
- * Resolves consent once and returns the verdict together with the resolved
- * regulation and the full user status.
+ * Resolves consent once and returns the verdict together with the full user
+ * status snapshot behind it.
  *
- * Prefer this over calling `isConsentRequired()` and then reading individual
- * getters: every consent getter costs a full CMP page load natively, so a single
- * snapshot is much cheaper than one call per value. Read purposes and vendors
- * from `userStatus.purposes` / `userStatus.vendors` instead of calling
+ * The value here is ordering and call count: `isConsentRequired()` is the call
+ * that drives the CMP WebView and pays a network round trip, and this guarantees
+ * the snapshot is read after it completes. Read purposes and vendors from
+ * `userStatus.purposes` / `userStatus.vendors` rather than calling
  * `getStatusForPurpose()` / `getStatusForVendor()` per id.
  *
  * @returns Promise resolving to the consent verdict and the snapshot behind it
@@ -353,11 +359,10 @@ export type ConsentResolution = {
  * // Start resolving during app boot, await it only where the decision is made.
  * const consentPromise = resolveConsent();
  *
- * const { consentRequired, regulation, userStatus } = await consentPromise;
+ * const { consentRequired, userStatus } = await consentPromise;
  * if (consentRequired) {
  *   await checkAndOpen(false);
  * }
- * console.log(regulation); // 'GDPR' | 'CCPA' | ...
  * console.log(userStatus.purposes.c52); // 'granted' | 'denied' | 'choiceDoesntExist'
  * ```
  */
