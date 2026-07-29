@@ -73,8 +73,8 @@ RCT_EXPORT_MODULE(CmSdkReactNativeV3)
         @(config.allowsOrientationChanges().value());
   if (config.darkMode().has_value())
     configDict[@"darkMode"] = @(config.darkMode().value());
-  if (config.navigationBarColor().has_value())
-    configDict[@"navigationBarColor"] = @(config.navigationBarColor().value());
+  if (config.navigationBarColor())
+    configDict[@"navigationBarColor"] = config.navigationBarColor();
   if (config.customRect().has_value()) {
     auto rect = config.customRect().value();
     configDict[@"customRect"] = @{
