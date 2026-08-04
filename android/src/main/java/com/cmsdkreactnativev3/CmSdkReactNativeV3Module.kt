@@ -5,7 +5,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.webkit.CookieManager
-import android.webkit.WebStorage
 import com.facebook.fbreact.specs.NativeCmSdkReactNativeV3Spec
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
@@ -412,8 +411,15 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
       runOnUiThread {
         try {
           manager.resetConsentManagementData()
-          clearWebViewStorage {
-            promise.resolve(true)
+          clearCmpWebViewStorage { cleared ->
+            if (cleared) {
+              promise.resolve(true)
+            } else {
+              promise.reject(
+                ErrorCodes.CONSENT_ERROR,
+                "Consent data was reset, but clearing CMP WebView cookies failed."
+              )
+            }
           }
         } catch (e: Exception) {
           promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reset consent management data: ${e.message}", e)
@@ -640,10 +646,14 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   }
 
   private fun mapBackgroundStyle(config: ReadableMap): ConsentLayerUIConfig.BackgroundStyle {
-    val backgroundConfig = if (config.hasKey("backgroundStyle") && !config.isNull("backgroundStyle")) config.getMap("backgroundStyle") else null
-    val type = backgroundConfig?.getString("type")
+    val backgroundConfig =
+      if (config.hasKey("backgroundStyle") && !config.isNull("backgroundStyle")) {
+        config.getMap("backgroundStyle")
+      } else {
+        null
+      } ?: return ConsentLayerUIConfig.BackgroundStyle.dimmed(android.graphics.Color.BLACK, 0.5f)
 
-    return when (type) {
+    return when (backgroundConfig.getString("type")) {
       "dimmed" -> ConsentLayerUIConfig.BackgroundStyle.dimmed(
         readOptionalColor(backgroundConfig, "color") ?: android.graphics.Color.BLACK,
         if (backgroundConfig.hasKey("opacity")) backgroundConfig.getDouble("opacity").toFloat() else 0.5f
@@ -717,23 +727,46 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
     block(cmpManager)
   }
 
-  private fun clearWebViewStorage(onComplete: () -> Unit) {
+  /**
+   * Clears cookies for known CMP hosts only.
+   *
+   * Do not call CookieManager.removeAllCookies() or WebStorage.deleteAllData():
+   * those wipe unrelated WebView sessions in the same process. CookieManager has
+   * no public per-domain bulk delete, so expire cookies for CMP URLs instead.
+   */
+  private fun clearCmpWebViewStorage(onComplete: (Boolean) -> Unit) {
     try {
       val cookieManager = CookieManager.getInstance()
-      cookieManager.removeAllCookies {
-        cookieManager.flush()
-        WebStorage.getInstance().deleteAllData()
-        onComplete()
+      for (domain in CMP_WEBVIEW_DOMAINS) {
+        for (url in listOf("https://$domain", "https://www.$domain")) {
+          val cookies = cookieManager.getCookie(url) ?: continue
+          cookies.split(";").forEach { cookie ->
+            val name = cookie.substringBefore("=").trim()
+            if (name.isNotEmpty()) {
+              cookieManager.setCookie(
+                url,
+                "$name=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Domain=$domain"
+              )
+            }
+          }
+        }
       }
+      cookieManager.flush()
+      onComplete(true)
     } catch (e: Exception) {
-      logWarning("Failed to clear WebView storage: ${e.message}")
-      onComplete()
+      logWarning("Failed to clear CMP WebView cookies: ${e.message}")
+      onComplete(false)
     }
   }
 
   companion object {
     const val NAME = "CmSdkReactNativeV3"
     const val TAG = "CmSdkReactNativeV3"
+    private val CMP_WEBVIEW_DOMAINS = listOf(
+      "consentmanager.net",
+      "delivery.consentmanager.net",
+      "a.delivery.consentmanager.net"
+    )
   }
 
   override fun didReceiveConsent(consent: String, jsonObject: Map<String, Any>) {

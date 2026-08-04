@@ -156,7 +156,7 @@ export type WebViewConfig = {
  */
 export type UserStatus = {
   status: string;
-  /** @deprecated Use `status`. Kept for Android backward compatibility. */
+  /** @deprecated Use `status`. Both platforms set this to the same value as `status`. */
   hasUserChoice?: string;
   vendors: { [key: string]: string };
   purposes: { [key: string]: string };

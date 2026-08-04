@@ -452,10 +452,11 @@ const HomeScreen: React.FC = () => {
     {
       title: 'Reset CMP Data',
       onPress: () =>
-        handleApiCall(
-          CmSdkReactNativeV3.resetConsentManagementData,
-          () => 'Data reset'
-        ),
+        handleApiCall(CmSdkReactNativeV3.resetConsentManagementData, () => {
+          // Boot-time promise is stale after a wipe; kick a fresh resolution.
+          consentResolutionRef.current = resolveConsent();
+          return 'Data reset';
+        }),
     },
   ];
 

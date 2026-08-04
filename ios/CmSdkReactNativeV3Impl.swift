@@ -226,7 +226,13 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
   @objc
   func checkAndOpen(_ jumpToSettings: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
       runOnMainThread {
-        self.updatePresentingViewControllerIfNeeded()
+        guard self.requirePresentingViewController(
+          methodName: "checkAndOpen",
+          reject: reject
+        ) != nil else {
+          return
+        }
+
         self.cmpManager.checkAndOpen(jumpToSettings: jumpToSettings) { error in
             if let error = error {
                 reject("ERROR", "Failed to check and open: \(error.localizedDescription)", error)
@@ -240,7 +246,13 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
   @objc
   func forceOpen(_ jumpToSettings: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
       runOnMainThread {
-        self.updatePresentingViewControllerIfNeeded()
+        guard self.requirePresentingViewController(
+          methodName: "forceOpen",
+          reject: reject
+        ) != nil else {
+          return
+        }
+
         self.cmpManager.forceOpen(jumpToSettings: jumpToSettings) { error in
             if let error = error {
                 reject("ERROR", "Failed to force open: \(error.localizedDescription)", error)
@@ -531,10 +543,22 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
     }
   }
 
-  private func updatePresentingViewControllerIfNeeded() {
-    if let viewController = currentPresentingViewController() {
-      cmpManager.setPresentingViewController(viewController)
+  @discardableResult
+  private func requirePresentingViewController(
+    methodName: String,
+    reject: @escaping RCTPromiseRejectBlock
+  ) -> UIViewController? {
+    guard let viewController = currentPresentingViewController() else {
+      reject(
+        "ERROR",
+        "No presenting view controller available. Wait until the app is active before calling \(methodName)().",
+        nil
+      )
+      return nil
     }
+
+    cmpManager.setPresentingViewController(viewController)
+    return viewController
   }
 
   private func currentPresentingViewController() -> UIViewController? {

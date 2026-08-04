@@ -167,6 +167,12 @@ BackgroundStyle.none()
 | `getStatusForVendor(id)` | `Promise<string>` |
 | `getGoogleConsentModeStatus()` | `Promise<GoogleConsentModeStatus>` |
 
+**Breaking (Android status strings):** purpose/vendor status values are now
+`granted` / `denied` / `choiceDoesntExist` on both platforms. Older Android builds
+returned Kotlin enum names (`GRANTED`, `DENIED`, `CHOICE_DOESNT_EXIST`). Update any
+string comparisons before upgrading. `UserStatus.status` / deprecated
+`hasUserChoice` use `choiceExists` / `choiceDoesntExist`.
+
 ### Cold start and read cost
 
 Not all of these calls cost the same. `isConsentRequired()`, `checkAndOpen()` and

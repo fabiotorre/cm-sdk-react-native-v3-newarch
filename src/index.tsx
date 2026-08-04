@@ -597,38 +597,39 @@ export const acceptAll = (): Promise<boolean> => {
   return CmSdkReactNativeV3.acceptAll();
 };
 
-export const setAutomaticConsentUpdatesEnabled = (
+export const setAutomaticConsentUpdatesEnabled = async (
   enabled: boolean
 ): Promise<void> => {
   return getNativeMethod('setAutomaticConsentUpdatesEnabled')(enabled);
 };
 
-export const updateThirdPartyConsent = (): Promise<ThirdPartyConsentStatus> => {
-  return getNativeMethod('updateThirdPartyConsent')();
-};
+export const updateThirdPartyConsent =
+  async (): Promise<ThirdPartyConsentStatus> => {
+    return getNativeMethod('updateThirdPartyConsent')();
+  };
 
-export const configureAutomaticFirebaseConsentUpdates = (
+export const configureAutomaticFirebaseConsentUpdates = async (
   enabled: boolean
 ): Promise<void> => {
   return getNativeMethod('configureAutomaticFirebaseConsentUpdates')(enabled);
 };
 
-export const setAutomaticFirebaseConsentUpdatesEnabled = (
+export const setAutomaticFirebaseConsentUpdatesEnabled = async (
   enabled: boolean
 ): Promise<void> => {
   return getNativeMethod('setAutomaticFirebaseConsentUpdatesEnabled')(enabled);
 };
 
 export const isAutomaticFirebaseConsentUpdatesEnabled =
-  (): Promise<boolean> => {
+  async (): Promise<boolean> => {
     return getNativeMethod('isAutomaticFirebaseConsentUpdatesEnabled')();
   };
 
-export const updateFirebaseConsent = (): Promise<boolean> => {
+export const updateFirebaseConsent = async (): Promise<boolean> => {
   return getNativeMethod('updateFirebaseConsent')();
 };
 
-export const isFirebaseAnalyticsAvailable = (): Promise<boolean> => {
+export const isFirebaseAnalyticsAvailable = async (): Promise<boolean> => {
   return getNativeMethod('isFirebaseAnalyticsAvailable')();
 };
 
