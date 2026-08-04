@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import WebKit
 import cm_sdk_ios_v3
 import React
 
@@ -60,11 +61,16 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
     eventEmitter?.sendEvent(withName: name, body: body)
   }
   
+  /// Hops to the main thread without blocking the caller.
+  ///
+  /// TurboModule promise methods run on a serial queue that React Native shares
+  /// across every Objective-C module, so a blocking hop here stalls this module
+  /// and every other one behind it while the main thread is busy during launch.
   private func runOnMainThread(_ block: @escaping () -> Void) {
     if Thread.isMainThread {
         block()
     } else {
-        DispatchQueue.main.sync(execute: block)
+        DispatchQueue.main.async(execute: block)
     }
   }
 
@@ -112,20 +118,21 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
     let cornerRadius = CGFloat(config["cornerRadius"] as? Double ?? 5)
     let respectsSafeArea = config["respectsSafeArea"] as? Bool ?? true
     let allowsOrientationChanges = config["allowsOrientationChanges"] as? Bool ?? true
+    let darkMode = config["darkMode"] as? Bool ?? false
 
-    let position = self.mapPosition(config: config, respectsSafeArea: respectsSafeArea)
-    let backgroundStyle = self.mapBackgroundStyle(config: config)
+    // mapPosition and mapBackgroundStyle read UIKit (screen bounds, safe area
+    // insets, colors), so they have to run on the main thread.
+    runOnMainThread { [self] in
+      let uiConfig = ConsentLayerUIConfig(
+        position: mapPosition(config: config, respectsSafeArea: respectsSafeArea),
+        backgroundStyle: mapBackgroundStyle(config: config),
+        cornerRadius: cornerRadius,
+        respectsSafeArea: respectsSafeArea,
+        allowsOrientationChanges: allowsOrientationChanges,
+        darkMode: darkMode
+      )
 
-    let uiConfig = ConsentLayerUIConfig(
-      position: position,
-      backgroundStyle: backgroundStyle,
-      cornerRadius: cornerRadius,
-      respectsSafeArea: respectsSafeArea,
-      allowsOrientationChanges: allowsOrientationChanges
-    )
-
-    runOnMainThread{
-      self.cmpManager.setWebViewConfig(uiConfig)
+      cmpManager.setWebViewConfig(uiConfig)
       resolve(nil)
     }
   }
@@ -140,10 +147,22 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
               let appName = config["appName"] as? String else {
           throw NSError(domain: "CmSdkReactNativeV3", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid config parameters"])
         }
+        let jsonConfig = config["jsonConfig"] as? String
         let noHash = config["noHash"] as? Bool ?? false
+        let webViewConnectionTimeoutMillis = (config["webViewConnectionTimeoutMillis"] as? NSNumber)?.intValue ?? 3000
+        let forceRegulation = config["forceRegulation"] as? String
         CMPLog("Setting URL config - ID: \(id), Domain: \(domain)")
 
-        let urlConfig = UrlConfig(id: id, domain: domain, language: language, appName: appName, jsonConfig: nil, noHash: noHash)
+        let urlConfig = UrlConfig(
+          id: id,
+          domain: domain,
+          language: language,
+          appName: appName,
+          jsonConfig: jsonConfig,
+          noHash: noHash,
+          webViewConnectionTimeoutMillis: webViewConnectionTimeoutMillis,
+          forceRegulation: forceRegulation
+        )
         CMPLog("URL config created: \(urlConfig)")
         self.cmpManager.setUrlConfig(urlConfig)
         resolve(nil)
@@ -162,10 +181,12 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
   @objc
   func getUserStatus(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
       let status = cmpManager.getUserStatus()
+      let normalizedStatus = normalizeUserChoiceStatus(status.status)
       let response: [String: Any] = [
-          "status": status.status,
-          "vendors": status.vendors,
-          "purposes": status.purposes,
+          "status": normalizedStatus,
+          "hasUserChoice": normalizedStatus,
+          "vendors": normalizeStatusMap(status.vendors),
+          "purposes": normalizeStatusMap(status.purposes),
           "tcf": status.tcf,
           "addtlConsent": status.addtlConsent,
           "regulation": status.regulation
@@ -187,13 +208,13 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
   @objc
   func getStatusForPurpose(_ purposeId: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
       let status = cmpManager.getStatusForPurpose(id: purposeId)
-      resolve(status.rawValue)
+      resolve(stringValue(for: status))
   }
 
   @objc
   func getStatusForVendor(_ vendorId: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
       let status = cmpManager.getStatusForVendor(id: vendorId)
-      resolve(status.rawValue)
+      resolve(stringValue(for: status))
   }
 
   @objc
@@ -204,23 +225,41 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
 
   @objc
   func checkAndOpen(_ jumpToSettings: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      cmpManager.checkAndOpen(jumpToSettings: jumpToSettings) { error in
-          if let error = error {
-              reject("ERROR", "Failed to check and open: \(error.localizedDescription)", error)
-          } else {
-              resolve(true)
-          }
+      runOnMainThread {
+        guard self.requirePresentingViewController(
+          methodName: "checkAndOpen",
+          reject: reject
+        ) != nil else {
+          return
+        }
+
+        self.cmpManager.checkAndOpen(jumpToSettings: jumpToSettings) { error in
+            if let error = error {
+                reject("ERROR", "Failed to check and open: \(error.localizedDescription)", error)
+            } else {
+                resolve(true)
+            }
+        }
       }
   }
 
   @objc
   func forceOpen(_ jumpToSettings: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      cmpManager.forceOpen(jumpToSettings: jumpToSettings) { error in
-          if let error = error {
-              reject("ERROR", "Failed to force open: \(error.localizedDescription)", error)
-          } else {
-              resolve(true)
-          }
+      runOnMainThread {
+        guard self.requirePresentingViewController(
+          methodName: "forceOpen",
+          reject: reject
+        ) != nil else {
+          return
+        }
+
+        self.cmpManager.forceOpen(jumpToSettings: jumpToSettings) { error in
+            if let error = error {
+                reject("ERROR", "Failed to force open: \(error.localizedDescription)", error)
+            } else {
+                resolve(true)
+            }
+        }
       }
   }
 
@@ -232,29 +271,29 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
 
   @objc
   func acceptVendors(_ vendors: [String], resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      self.cmpManager.acceptVendors(vendors) { success in
-          resolve(success)
-          }
+      self.cmpManager.acceptVendors(vendors) { error in
+        self.resolveBooleanCompletion(error: error, failurePrefix: "Failed to accept vendors", resolve: resolve, reject: reject)
+      }
   }
 
   @objc
   func rejectVendors(_ vendors: [String], resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      self.cmpManager.rejectVendors(vendors) { success in
-          resolve(success)
+      self.cmpManager.rejectVendors(vendors) { error in
+        self.resolveBooleanCompletion(error: error, failurePrefix: "Failed to reject vendors", resolve: resolve, reject: reject)
       }
   }
 
   @objc
   func acceptPurposes(_ purposes: [String], updatePurpose: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      self.cmpManager.acceptPurposes(purposes, updatePurpose: updatePurpose) { success in
-          resolve(success)
+      self.cmpManager.acceptPurposes(purposes, updatePurpose: updatePurpose) { error in
+        self.resolveBooleanCompletion(error: error, failurePrefix: "Failed to accept purposes", resolve: resolve, reject: reject)
       }
   }
 
   @objc
   func rejectPurposes(_ purposes: [String], updateVendor: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      self.cmpManager.rejectPurposes(purposes, updateVendor: updateVendor) { success in
-          resolve(success)
+      self.cmpManager.rejectPurposes(purposes, updateVendor: updateVendor) { error in
+        self.resolveBooleanCompletion(error: error, failurePrefix: "Failed to reject purposes", resolve: resolve, reject: reject)
       }
   }
 
@@ -293,7 +332,53 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
 
   @objc
   func resetConsentManagementData(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-      self.cmpManager.resetConsentManagementData(completion: { success in resolve(success)})
+      self.cmpManager.resetConsentManagementData { error in
+        if let error = error {
+          reject("ERROR", "Failed to reset consent management data: \(error.localizedDescription)", error)
+          return
+        }
+
+        self.clearWebViewData {
+          resolve(true)
+        }
+      }
+  }
+
+  @objc
+  func setAutomaticConsentUpdatesEnabled(_ enabled: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    reject("ERROR", "setAutomaticConsentUpdatesEnabled is only available on Android.", nil)
+  }
+
+  @objc
+  func updateThirdPartyConsent(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    reject("ERROR", "updateThirdPartyConsent is only available on Android.", nil)
+  }
+
+  @objc
+  func configureAutomaticFirebaseConsentUpdates(_ enabled: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    CMPManager.configureAutomaticFirebaseConsentUpdates(enabled)
+    resolve(nil)
+  }
+
+  @objc
+  func setAutomaticFirebaseConsentUpdatesEnabled(_ enabled: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    cmpManager.setAutomaticFirebaseConsentUpdatesEnabled(enabled)
+    resolve(nil)
+  }
+
+  @objc
+  func isAutomaticFirebaseConsentUpdatesEnabled(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    resolve(cmpManager.isAutomaticFirebaseConsentUpdatesEnabled())
+  }
+
+  @objc
+  func updateFirebaseConsent(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    resolve(cmpManager.updateFirebaseConsent())
+  }
+
+  @objc
+  func isFirebaseAnalyticsAvailable(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    resolve(cmpManager.isFirebaseAnalyticsAvailable())
   }
 
   // MARK: - Helpers
@@ -398,5 +483,144 @@ class CmSdkReactNativeV3Impl: NSObject, CMPManagerDelegate {
     }
 
     return insets
+  }
+
+  private func stringValue(for status: UniqueConsentStatus) -> String {
+    switch status {
+    case .choiceDoesntExist:
+      return "choiceDoesntExist"
+    case .granted:
+      return "granted"
+    case .denied:
+      return "denied"
+    @unknown default:
+      return "choiceDoesntExist"
+    }
+  }
+
+  private func normalizeUserChoiceStatus(_ status: String) -> String {
+    switch status.lowercased() {
+    case "choiceexists":
+      return "choiceExists"
+    case "choicedoesntexist":
+      return "choiceDoesntExist"
+    default:
+      return status
+    }
+  }
+
+  private func normalizeStatusMap(_ statuses: [String: String]) -> [String: String] {
+    var normalized: [String: String] = [:]
+    statuses.forEach { key, value in
+      normalized[key] = normalizeConsentStatus(value)
+    }
+    return normalized
+  }
+
+  private func normalizeConsentStatus(_ status: String) -> String {
+    switch status.lowercased() {
+    case "granted":
+      return "granted"
+    case "denied":
+      return "denied"
+    case "choicedoesntexist":
+      return "choiceDoesntExist"
+    default:
+      return status
+    }
+  }
+
+  private func resolveBooleanCompletion(
+    error: NSError?,
+    failurePrefix: String,
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    if let error = error {
+      reject("ERROR", "\(failurePrefix): \(error.localizedDescription)", error)
+    } else {
+      resolve(true)
+    }
+  }
+
+  @discardableResult
+  private func requirePresentingViewController(
+    methodName: String,
+    reject: @escaping RCTPromiseRejectBlock
+  ) -> UIViewController? {
+    guard let viewController = currentPresentingViewController() else {
+      reject(
+        "ERROR",
+        "No presenting view controller available. Wait until the app is active before calling \(methodName)().",
+        nil
+      )
+      return nil
+    }
+
+    cmpManager.setPresentingViewController(viewController)
+    return viewController
+  }
+
+  private func currentPresentingViewController() -> UIViewController? {
+    if #available(iOS 13.0, *) {
+      let windowScene = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first { $0.activationState == .foregroundActive }
+      let rootViewController = windowScene?.windows.first { $0.isKeyWindow }?.rootViewController
+      return topMostViewController(from: rootViewController)
+    }
+
+    return topMostViewController(from: UIApplication.shared.keyWindow?.rootViewController)
+  }
+
+  private func topMostViewController(from rootViewController: UIViewController?) -> UIViewController? {
+    var current = rootViewController
+    while let presented = current?.presentedViewController {
+      current = presented
+    }
+    return current
+  }
+
+  private func clearWebViewData(completion: @escaping () -> Void) {
+    let dataStore = WKWebsiteDataStore.default()
+    let types = WKWebsiteDataStore.allWebsiteDataTypes()
+    let domainsToClear = [
+      "consentmanager.net",
+      "delivery.consentmanager.net",
+      "a.delivery.consentmanager.net"
+    ]
+
+    DispatchQueue.main.async {
+      dataStore.fetchDataRecords(ofTypes: types) { records in
+        let toDelete = records.filter { record in
+          domainsToClear.contains { domain in
+            record.displayName.contains(domain)
+          }
+        }
+
+        let deleteAndComplete = {
+          self.clearCookiesForDomains(domainsToClear)
+          completion()
+        }
+
+        guard !toDelete.isEmpty else {
+          deleteAndComplete()
+          return
+        }
+
+        dataStore.removeData(ofTypes: types, for: toDelete) {
+          deleteAndComplete()
+        }
+      }
+    }
+  }
+
+  private func clearCookiesForDomains(_ domains: [String]) {
+    let cookieStorage = HTTPCookieStorage.shared
+    cookieStorage.cookies?.forEach { cookie in
+      if domains.contains(where: { domain in cookie.domain.contains(domain) }) {
+        cookieStorage.deleteCookie(cookie)
+      }
+    }
   }
 }

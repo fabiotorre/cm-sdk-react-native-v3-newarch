@@ -19,7 +19,7 @@ Pod::Spec.new do |s|
   }
 
   s.source_files = "ios/**/*.{h,m,mm,swift}"
-  s.dependency "cm-sdk-ios-v3", "3.8.0"
+  s.dependency "cm-sdk-ios-v3", "3.10.0"
 
   # New Architecture only - require RN 0.74+
   install_modules_dependencies(s)

@@ -12,10 +12,7 @@ import { TurboModuleRegistry } from 'react-native';
 // These must be defined in this file for React Native codegen to parse them.
 // =============================================================================
 
-/**
- * Possible consent status values for vendors and purposes.
- */
-export type ConsentStatusValue = 'accepted' | 'rejected' | 'unknown';
+export type ConsentStatusValue = 'granted' | 'denied' | 'choiceDoesntExist';
 
 /**
  * Google Consent Mode v2 consent types.
@@ -62,7 +59,13 @@ export type UrlConfig = {
   domain: string;
   language: string;
   appName: string;
+  /** Reserved for specific CMP setups. */
+  jsonConfig?: string;
   noHash?: boolean;
+  /** WebView connection timeout in ms. Default 3000. 0 disables timeout. */
+  webViewConnectionTimeoutMillis?: number;
+  /** Optional regulation override like `GDPR` or `LGPD`. */
+  forceRegulation?: string;
 };
 
 /**
@@ -125,7 +128,12 @@ export type WebViewBackgroundStyle =
       opacity?: number;
     }
   | { type: 'color'; color: string | number }
-  | { type: 'blur'; blurEffectStyle?: string }
+  | {
+      type: 'blur';
+      blurEffectStyle?: string;
+      fallbackColor?: string | number;
+      fallbackOpacity?: number;
+    }
   | { type: 'none' };
 
 /**
@@ -137,6 +145,9 @@ export type WebViewConfig = {
   cornerRadius?: number;
   respectsSafeArea?: boolean;
   allowsOrientationChanges?: boolean;
+  darkMode?: boolean;
+  /** Android-only. */
+  navigationBarColor?: string | number;
   backgroundStyle?: WebViewBackgroundStyle;
 };
 
@@ -145,6 +156,8 @@ export type WebViewConfig = {
  */
 export type UserStatus = {
   status: string;
+  /** @deprecated Use `status`. Both platforms set this to the same value as `status`. */
+  hasUserChoice?: string;
   vendors: { [key: string]: string };
   purposes: { [key: string]: string };
   tcf: string;
@@ -161,6 +174,10 @@ export type GoogleConsentModeStatus = {
   analytics_storage?: string;
   ad_user_data?: string;
   ad_personalization?: string;
+};
+
+export type ThirdPartyConsentStatus = {
+  [key: string]: boolean;
 };
 
 /**
@@ -226,6 +243,17 @@ export interface Spec extends TurboModule {
   rejectPurposes(purposes: string[], updateVendor: boolean): Promise<boolean>;
   rejectAll(): Promise<boolean>;
   acceptAll(): Promise<boolean>;
+
+  // Android-only helpers
+  setAutomaticConsentUpdatesEnabled(enabled: boolean): Promise<void>;
+  updateThirdPartyConsent(): Promise<ThirdPartyConsentStatus>;
+
+  // iOS-only Firebase helpers
+  configureAutomaticFirebaseConsentUpdates(enabled: boolean): Promise<void>;
+  setAutomaticFirebaseConsentUpdatesEnabled(enabled: boolean): Promise<void>;
+  isAutomaticFirebaseConsentUpdatesEnabled(): Promise<boolean>;
+  updateFirebaseConsent(): Promise<boolean>;
+  isFirebaseAnalyticsAvailable(): Promise<boolean>;
 
   // Event emitter methods (required for TurboModule)
   addListener(eventName: string): void;

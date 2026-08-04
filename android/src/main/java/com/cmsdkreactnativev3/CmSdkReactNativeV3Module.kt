@@ -1,8 +1,10 @@
 package com.cmsdkreactnativev3
 
+import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.CookieManager
 import com.facebook.fbreact.specs.NativeCmSdkReactNativeV3Spec
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
@@ -22,7 +24,7 @@ import net.consentmanager.cm_sdk_android_v3.CMPManagerDelegate
 import net.consentmanager.cm_sdk_android_v3.ConsentLayerUIConfig
 import net.consentmanager.cm_sdk_android_v3.ConsentStatus
 import net.consentmanager.cm_sdk_android_v3.UrlConfig
-import net.consentmanager.cm_sdk_android_v3.UserConsentStatus
+import net.consentmanager.cm_sdk_android_v3.UserChoiceStatus
 
 /**
  * Debug logging helper - only logs in debug builds
@@ -56,8 +58,6 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   private var urlConfig: UrlConfig
   private var webViewConfig: ConsentLayerUIConfig
   private val uiThreadHandler = Handler(Looper.getMainLooper())
-  private var isInitialized = false
-  private var storedATTStatus: Int = 0
 
 
   init {
@@ -74,7 +74,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   }
 
   override fun getName(): String = NAME
-  
+
   override fun invalidate() {
     super.invalidate()
     if (::cmpManager.isInitialized) {
@@ -102,12 +102,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
 
   @ReactMethod
   override fun setATTStatus(status: Double, promise: Promise) {
-    try {
-      this.storedATTStatus = status.toInt()
-      promise.resolve(null)
-    } catch (e: Exception) {
-      promise.reject(ErrorCodes.CONFIG_ERROR, "Failed to set ATT status: ${e.message}")
-    }
+    promise.resolve(null)
   }
 
   @ReactMethod
@@ -125,20 +120,18 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
           else -> ConsentLayerUIConfig.Position.FULL_SCREEN
         }
 
-        if (config.hasKey("backgroundStyle")) {
-          logWarning("Android SDK ignores backgroundStyle overrides; using dimmed default.")
-        }
-
         val cornerRadiusDp = if (config.hasKey("cornerRadius")) config.getDouble("cornerRadius").toFloat() else 5f
         val cornerRadius = dpToPx(cornerRadiusDp)
 
         this.webViewConfig = ConsentLayerUIConfig(
           position = position,
-          backgroundStyle = ConsentLayerUIConfig.BackgroundStyle.dimmed(android.graphics.Color.BLACK, 0.5f),
+          backgroundStyle = mapBackgroundStyle(config),
           cornerRadius = cornerRadius,
           respectsSafeArea = if (config.hasKey("respectsSafeArea")) config.getBoolean("respectsSafeArea") else true,
           isCancelable = false,
-          allowsOrientationChanges = if (config.hasKey("allowsOrientationChanges")) config.getBoolean("allowsOrientationChanges") else true
+          allowsOrientationChanges = if (config.hasKey("allowsOrientationChanges")) config.getBoolean("allowsOrientationChanges") else true,
+          darkMode = if (config.hasKey("darkMode")) config.getBoolean("darkMode") else false,
+          navigationBarColor = readOptionalColor(config, "navigationBarColor")
         )
 
         promise.resolve(null)
@@ -156,9 +149,22 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
         val domain = config.getString("domain") ?: throw IllegalArgumentException("Missing 'domain'")
         val language = config.getString("language") ?: throw IllegalArgumentException("Missing 'language'")
         val appName = config.getString("appName") ?: throw IllegalArgumentException("Missing 'appName'")
+        val jsonConfig = if (config.hasKey("jsonConfig")) config.getString("jsonConfig") else null
         val noHash = if (config.hasKey("noHash")) config.getBoolean("noHash") else false
+        val webViewConnectionTimeoutMillis =
+          if (config.hasKey("webViewConnectionTimeoutMillis")) config.getDouble("webViewConnectionTimeoutMillis").toLong() else 3000L
+        val forceRegulation = if (config.hasKey("forceRegulation")) config.getString("forceRegulation") else null
 
-        this.urlConfig = UrlConfig(id, domain, language, appName, noHash = noHash)
+        this.urlConfig = UrlConfig(
+          id = id,
+          domain = domain,
+          language = language,
+          appName = appName,
+          jsonConfig = jsonConfig,
+          noHash = noHash,
+          webViewConnectionTimeoutMillis = webViewConnectionTimeoutMillis,
+          forceRegulation = forceRegulation
+        )
 
         initializeCMPManager()
 
@@ -170,7 +176,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   }
 
   private fun initializeCMPManager() {
-    val activity = reactApplicationContext.currentActivity ?: throw IllegalStateException("Current activity is null")
+    val activity = currentActivitySafe ?: throw IllegalStateException("Current activity is null. Wait until the app is active before calling setUrlConfig().")
     logDebug("Initializing CMPManager with activity: $activity")
 
     cmpManager = CMPManager.getInstance(
@@ -195,12 +201,6 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
       }
     }
 
-    if (!isGloballyInitialized) {
-      globalCMPManager = cmpManager
-      isGloballyInitialized = true
-    }
-    isInitialized = true
-
     logDebug("CMPManager initialized successfully")
   }
 
@@ -209,30 +209,34 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
    */
   @ReactMethod
   override fun getUserStatus(promise: Promise) {
-    try {
-      val userStatus = cmpManager.getUserStatus()
-      val result = Arguments.createMap().apply {
-        putString("hasUserChoice", userStatus.hasUserChoice.toString())
-        putString("tcf", userStatus.tcf)
-        putString("addtlConsent", userStatus.addtlConsent)
-        putString("regulation", userStatus.regulation)
+    withCmpManager(promise) { manager ->
+      try {
+        val userStatus = manager.getUserStatus()
+        val normalizedStatus = mapUserChoiceStatus(userStatus.hasUserChoice)
+        val result = Arguments.createMap().apply {
+          putString("status", normalizedStatus)
+          putString("hasUserChoice", normalizedStatus)
+          putString("tcf", userStatus.tcf)
+          putString("addtlConsent", userStatus.addtlConsent)
+          putString("regulation", userStatus.regulation)
 
-        val vendorsMap = Arguments.createMap()
-        userStatus.vendors.forEach { (vendorId, status) ->
-          vendorsMap.putString(vendorId, status.toString())
-        }
-        putMap("vendors", vendorsMap)
+          val vendorsMap = Arguments.createMap()
+          userStatus.vendors.forEach { (vendorId, status) ->
+            vendorsMap.putString(vendorId, mapConsentStatus(status))
+          }
+          putMap("vendors", vendorsMap)
 
-        val purposesMap = Arguments.createMap()
-        userStatus.purposes.forEach { (purposeId, status) ->
-          purposesMap.putString(purposeId, status.toString())
+          val purposesMap = Arguments.createMap()
+          userStatus.purposes.forEach { (purposeId, status) ->
+            purposesMap.putString(purposeId, mapConsentStatus(status))
+          }
+          putMap("purposes", purposesMap)
         }
-        putMap("purposes", purposesMap)
+
+        promise.resolve(result)
+      } catch (e: Exception) {
+        promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get user status: ${e.message}", e)
       }
-
-      promise.resolve(result)
-    } catch (e: Exception) {
-      promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get user status: ${e.message}", e)
     }
   }
 
@@ -242,16 +246,24 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun isConsentRequired(promise: Promise) {
     scope.launch {
-      try {
-        cmpManager.isConsentRequired { result ->
-          if (result.isSuccess) {
-            promise.resolve(result.getOrNull() ?: false)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
-          }
+      withCmpManager(promise) { manager ->
+        val activity = currentActivitySafe ?: run {
+          promise.reject(ErrorCodes.INIT_ERROR, "Current activity is null. Wait until the app is active before calling isConsentRequired().")
+          return@withCmpManager
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to check if consent is required: ${e.message}", e)
+
+        try {
+          manager.setActivity(activity)
+          manager.isConsentRequired { result ->
+            if (result.isSuccess) {
+              promise.resolve(result.getOrNull() ?: false)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
+          }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to check if consent is required: ${e.message}", e)
+        }
       }
     }
   }
@@ -266,11 +278,13 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
    */
   @ReactMethod
   override fun getStatusForPurpose(purposeId: String, promise: Promise) {
-    try {
-      val status = cmpManager.getStatusForPurpose(purposeId)
-      promise.resolve(status.toString())
-    } catch (e: Exception) {
-      promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get status for purpose: ${e.message}", e)
+    withCmpManager(promise) { manager ->
+      try {
+        val status = manager.getStatusForPurpose(purposeId)
+        promise.resolve(mapConsentStatus(status))
+      } catch (e: Exception) {
+        promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get status for purpose: ${e.message}", e)
+      }
     }
   }
 
@@ -279,11 +293,13 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
    */
   @ReactMethod
   override fun getStatusForVendor(vendorId: String, promise: Promise) {
-    try {
-      val status = cmpManager.getStatusForVendor(vendorId)
-      promise.resolve(status.toString())
-    } catch (e: Exception) {
-      promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get status for vendor: ${e.message}", e)
+    withCmpManager(promise) { manager ->
+      try {
+        val status = manager.getStatusForVendor(vendorId)
+        promise.resolve(mapConsentStatus(status))
+      } catch (e: Exception) {
+        promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get status for vendor: ${e.message}", e)
+      }
     }
   }
 
@@ -292,17 +308,19 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
    */
   @ReactMethod
   override fun getGoogleConsentModeStatus(promise: Promise) {
-    try {
-      val consentModeStatus = cmpManager.getGoogleConsentModeStatus()
-      val result = Arguments.createMap()
+    withCmpManager(promise) { manager ->
+      try {
+        val consentModeStatus = manager.getGoogleConsentModeStatus()
+        val result = Arguments.createMap()
 
-      consentModeStatus.forEach { (key, value) ->
-        result.putString(key, value)
+        consentModeStatus.forEach { (key, value) ->
+          result.putString(key, value)
+        }
+
+        promise.resolve(result)
+      } catch (e: Exception) {
+        promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get Google Consent Mode status: ${e.message}", e)
       }
-
-      promise.resolve(result)
-    } catch (e: Exception) {
-      promise.reject(ErrorCodes.STATUS_ERROR, "Failed to get Google Consent Mode status: ${e.message}", e)
     }
   }
 
@@ -312,18 +330,24 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun forceOpen(jumpToSettings: Boolean, promise: Promise) {
     scope.launch {
-      try {
-        reactApplicationContext.currentActivity?.let { cmpManager.setActivity(it) }
-
-        cmpManager.forceOpen(jumpToSettings) { result ->
-          if (result.isSuccess) {
-            promise.resolve(true)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
-          }
+      withCmpManager(promise) { manager ->
+        val activity = currentActivitySafe ?: run {
+          promise.reject(ErrorCodes.INIT_ERROR, "Current activity is null. Wait until the app is active before calling forceOpen().")
+          return@withCmpManager
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to force open consent layer: ${e.message}", e)
+
+        try {
+          manager.setActivity(activity)
+          manager.forceOpen(jumpToSettings) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
+          }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to force open consent layer: ${e.message}", e)
+        }
       }
     }
   }
@@ -334,18 +358,24 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun checkAndOpen(jumpToSettings: Boolean, promise: Promise) {
     scope.launch {
-      try {
-        reactApplicationContext.currentActivity?.let { cmpManager.setActivity(it) }
-
-        cmpManager.checkAndOpen(jumpToSettings) { result ->
-          if (result.isSuccess) {
-            promise.resolve(true)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
-          }
+      withCmpManager(promise) { manager ->
+        val activity = currentActivitySafe ?: run {
+          promise.reject(ErrorCodes.INIT_ERROR, "Current activity is null. Wait until the app is active before calling checkAndOpen().")
+          return@withCmpManager
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to check and open consent: ${e.message}", e)
+
+        try {
+          manager.setActivity(activity)
+          manager.checkAndOpen(jumpToSettings) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
+          }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to check and open consent: ${e.message}", e)
+        }
       }
     }
   }
@@ -356,16 +386,18 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun importCMPInfo(cmpString: String, promise: Promise) {
     scope.launch {
-      try {
-        cmpManager.importCMPInfo(cmpString) { result ->
-          if (result.isSuccess) {
-            promise.resolve(true)
-          } else {
-            promise.reject(ErrorCodes.IMPORT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          manager.importCMPInfo(cmpString) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.IMPORT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.IMPORT_ERROR, "Failed to import CMP info: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.IMPORT_ERROR, "Failed to import CMP info: ${e.message}", e)
       }
     }
   }
@@ -375,33 +407,50 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
    */
   @ReactMethod
   override fun resetConsentManagementData(promise: Promise) {
-    try {
-      cmpManager.resetConsentManagementData()
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reset consent management data: ${e.message}", e)
+    withCmpManager(promise) { manager ->
+      runOnUiThread {
+        try {
+          manager.resetConsentManagementData()
+          clearCmpWebViewStorage { cleared ->
+            if (cleared) {
+              promise.resolve(true)
+            } else {
+              promise.reject(
+                ErrorCodes.CONSENT_ERROR,
+                "Consent data was reset, but clearing CMP WebView cookies failed."
+              )
+            }
+          }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reset consent management data: ${e.message}", e)
+        }
+      }
     }
   }
 
   @ReactMethod
   override fun exportCMPInfo(promise: Promise) {
-    promise.resolve(cmpManager.exportCMPInfo())
+    withCmpManager(promise) { manager ->
+      promise.resolve(manager.exportCMPInfo())
+    }
   }
 
   @ReactMethod
   override fun acceptVendors(vendors: ReadableArray, promise: Promise) {
     scope.launch {
-      try {
-        logDebug("Accepting vendors: $vendors")
-        cmpManager.acceptVendors(vendors.toListOfStrings()) { result ->
-          if (result.isSuccess) {
-            promise.resolve(null)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          logDebug("Accepting vendors: $vendors")
+          manager.acceptVendors(vendors.toListOfStrings()) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to accept vendors: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to accept vendors: ${e.message}", e)
       }
     }
   }
@@ -409,17 +458,19 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun rejectVendors(vendors: ReadableArray, promise: Promise) {
     scope.launch {
-      try {
-        logDebug("Rejecting vendors: $vendors")
-        cmpManager.rejectVendors(vendors.toListOfStrings()) { result ->
-          if (result.isSuccess) {
-            promise.resolve(null)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          logDebug("Rejecting vendors: $vendors")
+          manager.rejectVendors(vendors.toListOfStrings()) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reject vendors: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reject vendors: ${e.message}", e)
       }
     }
   }
@@ -427,17 +478,19 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun acceptPurposes(purposes: ReadableArray, updatePurpose: Boolean, promise: Promise) {
     scope.launch {
-      try {
-        logDebug("Accepting purposes: $purposes")
-        cmpManager.acceptPurposes(purposes.toListOfStrings(), updatePurpose) { result ->
-          if (result.isSuccess) {
-            promise.resolve(null)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          logDebug("Accepting purposes: $purposes")
+          manager.acceptPurposes(purposes.toListOfStrings(), updatePurpose) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to accept purposes: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to accept purposes: ${e.message}", e)
       }
     }
   }
@@ -445,17 +498,19 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun rejectPurposes(purposes: ReadableArray, updateVendor: Boolean, promise: Promise) {
     scope.launch {
-      try {
-        logDebug("Rejecting purposes: $purposes")
-        cmpManager.rejectPurposes(purposes.toListOfStrings(), updateVendor) { result ->
-          if (result.isSuccess) {
-            promise.resolve(null)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          logDebug("Rejecting purposes: $purposes")
+          manager.rejectPurposes(purposes.toListOfStrings(), updateVendor) { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reject purposes: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reject purposes: ${e.message}", e)
       }
     }
   }
@@ -463,16 +518,18 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun rejectAll(promise: Promise) {
     scope.launch {
-      try {
-        cmpManager.rejectAll { result ->
-          if (result.isSuccess) {
-            promise.resolve(null)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          manager.rejectAll { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reject all: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to reject all: ${e.message}", e)
       }
     }
   }
@@ -480,18 +537,72 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   @ReactMethod
   override fun acceptAll(promise: Promise) {
     scope.launch {
-      try {
-        cmpManager.acceptAll { result ->
-          if (result.isSuccess) {
-            promise.resolve(null)
-          } else {
-            promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+      withCmpManager(promise) { manager ->
+        try {
+          manager.acceptAll { result ->
+            if (result.isSuccess) {
+              promise.resolve(true)
+            } else {
+              promise.reject(ErrorCodes.CONSENT_ERROR, result.exceptionOrNull()?.message ?: "Unknown error")
+            }
           }
+        } catch (e: Exception) {
+          promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to accept all: ${e.message}", e)
         }
-      } catch (e: Exception) {
-        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to accept all: ${e.message}", e)
       }
     }
+  }
+
+  @ReactMethod
+  override fun setAutomaticConsentUpdatesEnabled(enabled: Boolean, promise: Promise) {
+    withCmpManager(promise) { manager ->
+      try {
+        manager.setAutomaticConsentUpdatesEnabled(enabled)
+        promise.resolve(null)
+      } catch (e: Exception) {
+        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to set automatic consent updates: ${e.message}", e)
+      }
+    }
+  }
+
+  @ReactMethod
+  override fun updateThirdPartyConsent(promise: Promise) {
+    withCmpManager(promise) { manager ->
+      try {
+        val result = Arguments.createMap()
+        manager.updateThirdPartyConsent(reactApplicationContext).forEach { (key, value) ->
+          result.putBoolean(key, value)
+        }
+        promise.resolve(result)
+      } catch (e: Exception) {
+        promise.reject(ErrorCodes.CONSENT_ERROR, "Failed to update third-party consent: ${e.message}", e)
+      }
+    }
+  }
+
+  @ReactMethod
+  override fun configureAutomaticFirebaseConsentUpdates(enabled: Boolean, promise: Promise) {
+    promise.reject(ErrorCodes.CONFIG_ERROR, "configureAutomaticFirebaseConsentUpdates is only available on iOS.")
+  }
+
+  @ReactMethod
+  override fun setAutomaticFirebaseConsentUpdatesEnabled(enabled: Boolean, promise: Promise) {
+    promise.reject(ErrorCodes.CONFIG_ERROR, "setAutomaticFirebaseConsentUpdatesEnabled is only available on iOS.")
+  }
+
+  @ReactMethod
+  override fun isAutomaticFirebaseConsentUpdatesEnabled(promise: Promise) {
+    promise.reject(ErrorCodes.CONFIG_ERROR, "isAutomaticFirebaseConsentUpdatesEnabled is only available on iOS.")
+  }
+
+  @ReactMethod
+  override fun updateFirebaseConsent(promise: Promise) {
+    promise.reject(ErrorCodes.CONFIG_ERROR, "updateFirebaseConsent is only available on iOS.")
+  }
+
+  @ReactMethod
+  override fun isFirebaseAnalyticsAvailable(promise: Promise) {
+    promise.reject(ErrorCodes.CONFIG_ERROR, "isFirebaseAnalyticsAvailable is only available on iOS.")
   }
   private fun ReadableArray.toListOfStrings(): List<String> {
     val list = mutableListOf<String>()
@@ -509,7 +620,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   override fun onHostResume() {
     if (::cmpManager.isInitialized) {
       cmpManager.onApplicationResume()
-      reactApplicationContext.currentActivity?.let { cmpManager.setActivity(it) }
+      currentActivitySafe?.let { cmpManager.setActivity(it) }
     }
   }
 
@@ -525,23 +636,137 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
     }
   }
 
+  private val currentActivitySafe: Activity?
+    get() = reactApplicationContext.currentActivity
+
   private fun sendEvent(eventName: String, params: WritableMap?) {
     logDebug("sendEvent: $eventName")
     // Bridgeless-compatible: emitDeviceEvent works in all modes (legacy, new arch, bridgeless)
     reactApplicationContext.emitDeviceEvent(eventName, params)
   }
 
-  private fun List<String>.toWritableArray(): WritableArray {
-    return Arguments.createArray().apply {
-      this@toWritableArray.forEach { pushString(it) }
+  private fun mapBackgroundStyle(config: ReadableMap): ConsentLayerUIConfig.BackgroundStyle {
+    val backgroundConfig =
+      if (config.hasKey("backgroundStyle") && !config.isNull("backgroundStyle")) {
+        config.getMap("backgroundStyle")
+      } else {
+        null
+      } ?: return ConsentLayerUIConfig.BackgroundStyle.dimmed(android.graphics.Color.BLACK, 0.5f)
+
+    return when (backgroundConfig.getString("type")) {
+      "dimmed" -> ConsentLayerUIConfig.BackgroundStyle.dimmed(
+        readOptionalColor(backgroundConfig, "color") ?: android.graphics.Color.BLACK,
+        if (backgroundConfig.hasKey("opacity")) backgroundConfig.getDouble("opacity").toFloat() else 0.5f
+      )
+      "color" -> ConsentLayerUIConfig.BackgroundStyle.solid(
+        readOptionalColor(backgroundConfig, "color") ?: android.graphics.Color.BLACK
+      )
+      "blur" -> ConsentLayerUIConfig.BackgroundStyle.blur(
+        readOptionalColor(backgroundConfig, "fallbackColor") ?: android.graphics.Color.BLACK,
+        if (backgroundConfig.hasKey("fallbackOpacity")) backgroundConfig.getDouble("fallbackOpacity").toFloat() else 0.5f
+      )
+      "none" -> ConsentLayerUIConfig.BackgroundStyle.none()
+      else -> ConsentLayerUIConfig.BackgroundStyle.dimmed(android.graphics.Color.BLACK, 0.5f)
+    }
+  }
+
+  private fun readOptionalColor(config: ReadableMap?, key: String): Int? {
+    if (config == null || !config.hasKey(key) || config.isNull(key)) {
+      return null
+    }
+
+    return when (config.getType(key)) {
+      ReadableType.Number -> config.getDouble(key).toInt()
+      ReadableType.String -> parseColorString(config.getString(key))
+      else -> throw IllegalArgumentException("Unsupported color value type for $key")
+    }
+  }
+
+  private fun parseColorString(color: String?): Int {
+    val value = color?.trim()?.lowercase()
+      ?: throw IllegalArgumentException("Color value cannot be null")
+
+    return when (value) {
+      "black" -> android.graphics.Color.BLACK
+      "white" -> android.graphics.Color.WHITE
+      "red" -> android.graphics.Color.RED
+      "green" -> android.graphics.Color.GREEN
+      "blue" -> android.graphics.Color.BLUE
+      "yellow" -> android.graphics.Color.YELLOW
+      "cyan" -> android.graphics.Color.CYAN
+      "magenta" -> android.graphics.Color.MAGENTA
+      "gray", "grey" -> android.graphics.Color.GRAY
+      "darkgray", "darkgrey" -> android.graphics.Color.DKGRAY
+      "lightgray", "lightgrey" -> android.graphics.Color.LTGRAY
+      "transparent" -> android.graphics.Color.TRANSPARENT
+      else -> android.graphics.Color.parseColor(color)
+    }
+  }
+
+  private fun mapConsentStatus(status: ConsentStatus): String {
+    return when (status) {
+      ConsentStatus.CHOICE_DOESNT_EXIST -> "choiceDoesntExist"
+      ConsentStatus.GRANTED -> "granted"
+      ConsentStatus.DENIED -> "denied"
+    }
+  }
+
+  private fun mapUserChoiceStatus(status: UserChoiceStatus): String {
+    return when (status) {
+      UserChoiceStatus.CHOICE_EXISTS -> "choiceExists"
+      UserChoiceStatus.CHOICE_DOESNT_EXIST -> "choiceDoesntExist"
+    }
+  }
+
+  private fun withCmpManager(promise: Promise, block: (CMPManager) -> Unit) {
+    if (!::cmpManager.isInitialized) {
+      promise.reject(ErrorCodes.INIT_ERROR, "CMPManager is not initialized. Call setUrlConfig() first.")
+      return
+    }
+
+    block(cmpManager)
+  }
+
+  /**
+   * Clears cookies for known CMP hosts only.
+   *
+   * Do not call CookieManager.removeAllCookies() or WebStorage.deleteAllData():
+   * those wipe unrelated WebView sessions in the same process. CookieManager has
+   * no public per-domain bulk delete, so expire cookies for CMP URLs instead.
+   */
+  private fun clearCmpWebViewStorage(onComplete: (Boolean) -> Unit) {
+    try {
+      val cookieManager = CookieManager.getInstance()
+      for (domain in CMP_WEBVIEW_DOMAINS) {
+        for (url in listOf("https://$domain", "https://www.$domain")) {
+          val cookies = cookieManager.getCookie(url) ?: continue
+          cookies.split(";").forEach { cookie ->
+            val name = cookie.substringBefore("=").trim()
+            if (name.isNotEmpty()) {
+              cookieManager.setCookie(
+                url,
+                "$name=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Domain=$domain"
+              )
+            }
+          }
+        }
+      }
+      cookieManager.flush()
+      onComplete(true)
+    } catch (e: Exception) {
+      logWarning("Failed to clear CMP WebView cookies: ${e.message}")
+      onComplete(false)
     }
   }
 
   companion object {
     const val NAME = "CmSdkReactNativeV3"
     const val TAG = "CmSdkReactNativeV3"
-    private var globalCMPManager: CMPManager? = null
-    private var isGloballyInitialized = false
+    private val CMP_WEBVIEW_DOMAINS = listOf(
+      "consentmanager.net",
+      "delivery.consentmanager.net",
+      "a.delivery.consentmanager.net"
+    )
   }
 
   override fun didReceiveConsent(consent: String, jsonObject: Map<String, Any>) {

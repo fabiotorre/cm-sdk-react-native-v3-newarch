@@ -160,11 +160,68 @@ BackgroundStyle.none()
 
 | Method | Returns |
 |--------|---------|
+| `resolveConsent()` | `Promise<ConsentResolution>` |
 | `getUserStatus()` | `Promise<UserStatus>` |
 | `isConsentRequired()` | `Promise<boolean>` |
 | `getStatusForPurpose(id)` | `Promise<string>` |
 | `getStatusForVendor(id)` | `Promise<string>` |
 | `getGoogleConsentModeStatus()` | `Promise<GoogleConsentModeStatus>` |
+
+**Breaking (Android status strings):** purpose/vendor status values are now
+`granted` / `denied` / `choiceDoesntExist` on both platforms. Older Android builds
+returned Kotlin enum names (`GRANTED`, `DENIED`, `CHOICE_DOESNT_EXIST`). Update any
+string comparisons before upgrading. `UserStatus.status` / deprecated
+`hasUserChoice` use `choiceExists` / `choiceDoesntExist`.
+
+### Cold start and read cost
+
+Not all of these calls cost the same. `isConsentRequired()`, `checkAndOpen()` and
+`forceOpen()` drive the CMP WebView and pay a network round trip. The status
+getters — `getUserStatus()`, `getStatusForPurpose()`, `getStatusForVendor()` —
+read state the native SDK already holds, so they are comparatively cheap.
+
+Measured on an iPhone 16 Pro simulator, cold install, EU/GDPR, against a CMP
+endpoint answering in ~160 ms: `isConsentRequired()` 1.2 s median,
+`getUserStatus()` ~50 ms, launch to visible banner 2.7 s. Most of
+`isConsentRequired()` is spent inside the SDK and WebView after the network has
+already completed, so a slower device or connection scales it up sharply.
+
+**Budget for one resolution, not several.** `resolveConsent()` exists to give you
+the verdict and a full snapshot together, in that order, from a single round trip:
+
+```typescript
+const { consentRequired, userStatus } = await resolveConsent();
+const analytics = userStatus.purposes.c52 ?? 'choiceDoesntExist';
+```
+
+Reading individual purposes with `getStatusForPurpose()` is not expensive, but it
+tells you nothing `userStatus.purposes` does not already contain.
+
+**Do not branch on `regulation` at resolution time.** On a cold install the field
+is an empty string even when `isConsentRequired()` returns `true` and the server
+resolved GDPR. This is the native SDK's behaviour and this wrapper passes it
+through unchanged, so treat an empty value as "unknown" rather than "no
+regulation", and do not use it to choose between GDPR and CCPA UI.
+
+**Don't hold the splash on the resolution.** Start it during boot, keep the
+promise, and await it only where the consent decision is made. The CMP round trip
+then overlaps with the rest of your startup instead of extending it:
+
+```typescript
+await setWebViewConfig({ position: WebViewPosition.HalfScreenBottom });
+await setUrlConfig({ id: '...', domain: '...', language: 'EN', appName: 'MyApp' });
+
+// Kick off, but do not await here.
+const consent = resolveConsent();
+
+// ... render your app ...
+
+// Await where the banner decision actually happens.
+const { consentRequired } = await consent;
+if (consentRequired) {
+  await checkAndOpen(false);
+}
+```
 
 ### Event Listeners
 

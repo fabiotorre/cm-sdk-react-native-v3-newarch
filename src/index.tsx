@@ -52,6 +52,7 @@ import NativeCmSdkReactNativeV3, {
   BackgroundStyle,
   type UserStatus,
   type GoogleConsentModeStatus,
+  type ThirdPartyConsentStatus,
 } from './NativeCmSdkReactNativeV3';
 
 const LINKING_ERROR =
@@ -81,6 +82,20 @@ const CmSdkReactNativeV3 =
 export const isTurboModuleEnabled = NativeCmSdkReactNativeV3 != null;
 
 const eventEmitter = new NativeEventEmitter(CmSdkReactNativeV3);
+
+const getNativeMethod = <T extends keyof typeof CmSdkReactNativeV3>(methodName: T) => {
+  const method = CmSdkReactNativeV3[methodName];
+  if (typeof method !== 'function') {
+    throw new Error(
+      `[cm-sdk-react-native-v3-new-arch] ${String(methodName)} is not available on ${Platform.OS}.`
+    );
+  }
+
+  return method.bind(CmSdkReactNativeV3) as Exclude<
+    (typeof CmSdkReactNativeV3)[T],
+    undefined
+  >;
+};
 
 /**
  * Registers a listener for consent received events.
@@ -309,6 +324,55 @@ export const isConsentRequired = (): Promise<boolean> => {
   return CmSdkReactNativeV3.isConsentRequired();
 };
 
+/**
+ * Outcome of a single consent resolution.
+ */
+export type ConsentResolution = {
+  /** True when the consent layer still needs to be shown. */
+  consentRequired: boolean;
+  /**
+   * Regulation reported by the native SDK, e.g. `GDPR` or `CCPA`.
+   *
+   * Empty in practice at this point in the lifecycle: on a cold install the
+   * native SDK reports an empty string even when `consentRequired` is true and
+   * the server resolved a regulation. Treat empty as unknown, not as "none".
+   */
+  regulation: string;
+  /** Snapshot taken after the resolution completed. */
+  userStatus: UserStatus;
+};
+
+/**
+ * Resolves consent once and returns the verdict together with the full user
+ * status snapshot behind it.
+ *
+ * The value here is ordering and call count: `isConsentRequired()` is the call
+ * that drives the CMP WebView and pays a network round trip, and this guarantees
+ * the snapshot is read after it completes. Read purposes and vendors from
+ * `userStatus.purposes` / `userStatus.vendors` rather than calling
+ * `getStatusForPurpose()` / `getStatusForVendor()` per id.
+ *
+ * @returns Promise resolving to the consent verdict and the snapshot behind it
+ *
+ * @example
+ * ```typescript
+ * // Start resolving during app boot, await it only where the decision is made.
+ * const consentPromise = resolveConsent();
+ *
+ * const { consentRequired, userStatus } = await consentPromise;
+ * if (consentRequired) {
+ *   await checkAndOpen(false);
+ * }
+ * console.log(userStatus.purposes.c52); // 'granted' | 'denied' | 'choiceDoesntExist'
+ * ```
+ */
+export const resolveConsent = async (): Promise<ConsentResolution> => {
+  const consentRequired = await isConsentRequired();
+  const userStatus = await getUserStatus();
+
+  return { consentRequired, regulation: userStatus.regulation, userStatus };
+};
+
 // Internal helper functions
 const normalizeWebViewConfig = (config: WebViewConfig): WebViewConfig => {
   const position =
@@ -330,7 +394,7 @@ const normalizeWebViewConfig = (config: WebViewConfig): WebViewConfig => {
     }
     if (Platform.OS === 'android') {
       console.warn(
-        '[cm-sdk-react-native-v3] Android SDK ignores customRect; falling back to full screen.'
+        '[cm-sdk-react-native-v3-new-arch] Android SDK uses width/height/gravity for custom positioning, so RN customRect falls back to full screen.'
       );
     }
   }
@@ -368,12 +432,14 @@ const normalizeWebViewConfig = (config: WebViewConfig): WebViewConfig => {
         ) {
           throw new Error(`Invalid blurEffectStyle: ${blurStyle}`);
         }
-        if (Platform.OS === 'android') {
-          console.warn(
-            '[cm-sdk-react-native-v3] Android SDK ignores blur; using dimmed.'
-          );
-        }
-        return { type, blurEffectStyle: blurStyle } as WebViewBackgroundStyle;
+        return {
+          type,
+          blurEffectStyle: blurStyle,
+          fallbackColor: normalizeColor(
+            config.backgroundStyle.fallbackColor ?? 'black'
+          ),
+          fallbackOpacity: config.backgroundStyle.fallbackOpacity ?? 0.5,
+        } as WebViewBackgroundStyle;
       }
       case BackgroundStyleType.None:
         return { type } as WebViewBackgroundStyle;
@@ -384,27 +450,23 @@ const normalizeWebViewConfig = (config: WebViewConfig): WebViewConfig => {
     }
   })();
 
-  if (Platform.OS === 'android' && config.backgroundStyle) {
-    console.warn(
-      '[cm-sdk-react-native-v3] Android SDK ignores backgroundStyle; using dimmed.'
-    );
-  }
-
   return {
     position,
     customRect: config.customRect,
     cornerRadius: config.cornerRadius ?? 5,
     respectsSafeArea: config.respectsSafeArea ?? true,
     allowsOrientationChanges: config.allowsOrientationChanges ?? true,
+    darkMode: config.darkMode ?? false,
+    navigationBarColor: normalizeColor(config.navigationBarColor),
     backgroundStyle,
   };
 };
 
-const normalizeColor = (color: string | number | undefined) => {
+const normalizeColor = (color: string | number | undefined): number | undefined => {
   if (color === undefined) return undefined;
   const processed = processColor(color);
   if (processed == null) throw new Error(`Invalid color value: ${color}`);
-  return processed;
+  return processed as number;
 };
 
 /**
@@ -535,6 +597,42 @@ export const acceptAll = (): Promise<boolean> => {
   return CmSdkReactNativeV3.acceptAll();
 };
 
+export const setAutomaticConsentUpdatesEnabled = async (
+  enabled: boolean
+): Promise<void> => {
+  return getNativeMethod('setAutomaticConsentUpdatesEnabled')(enabled);
+};
+
+export const updateThirdPartyConsent =
+  async (): Promise<ThirdPartyConsentStatus> => {
+    return getNativeMethod('updateThirdPartyConsent')();
+  };
+
+export const configureAutomaticFirebaseConsentUpdates = async (
+  enabled: boolean
+): Promise<void> => {
+  return getNativeMethod('configureAutomaticFirebaseConsentUpdates')(enabled);
+};
+
+export const setAutomaticFirebaseConsentUpdatesEnabled = async (
+  enabled: boolean
+): Promise<void> => {
+  return getNativeMethod('setAutomaticFirebaseConsentUpdatesEnabled')(enabled);
+};
+
+export const isAutomaticFirebaseConsentUpdatesEnabled =
+  async (): Promise<boolean> => {
+    return getNativeMethod('isAutomaticFirebaseConsentUpdatesEnabled')();
+  };
+
+export const updateFirebaseConsent = async (): Promise<boolean> => {
+  return getNativeMethod('updateFirebaseConsent')();
+};
+
+export const isFirebaseAnalyticsAvailable = async (): Promise<boolean> => {
+  return getNativeMethod('isFirebaseAnalyticsAvailable')();
+};
+
 /**
  * Checks if the React Native New Architecture is enabled.
  * Useful for debugging and conditional behavior.
@@ -574,6 +672,7 @@ export type {
   WebViewConfig,
   UserStatus,
   GoogleConsentModeStatus,
+  ThirdPartyConsentStatus,
 };
 
 // Re-export enums/constants for consumers

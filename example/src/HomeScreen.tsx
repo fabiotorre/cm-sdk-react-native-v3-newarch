@@ -21,10 +21,13 @@ import CmSdkReactNativeV3, {
   BackgroundStyle,
   ATTStatus,
   WebViewPosition,
+  type ConsentResolution,
+  type UrlConfig,
   type WebViewConfig,
   isNewArchitectureEnabled,
   isTurboModuleEnabled,
   isConsentRequired,
+  resolveConsent,
 } from 'cm-sdk-react-native-v3-new-arch';
 
 // =============================================================================
@@ -32,13 +35,14 @@ import CmSdkReactNativeV3, {
 // =============================================================================
 
 /** CMP configuration - replace with your own values */
-const CMP_CONFIG = {
+const CMP_CONFIG: UrlConfig = {
   id: 'f5e3b73592c3c', // Replace this by your own Code-ID
   domain: 'delivery.consentmanager.net',
   language: 'EN',
   appName: 'CMDemoAppReactNative',
   noHash: true,
-} as const;
+  webViewConnectionTimeoutMillis: 7000,
+};
 
 /** Default WebView configuration */
 const DEFAULT_WEBVIEW_CONFIG: WebViewConfig = {
@@ -81,6 +85,9 @@ const HomeScreen: React.FC = () => {
 
   // Toast timeout ref for cleanup
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Consent resolution started during boot, awaited on demand.
+  const consentResolutionRef = useRef<Promise<ConsentResolution> | null>(null);
 
   // =============================================================================
   // Toast with proper cleanup
@@ -218,6 +225,11 @@ const HomeScreen: React.FC = () => {
       if (Platform.OS === 'ios') {
         await CmSdkReactNativeV3.setATTStatus(ATTStatus.NotDetermined);
       }
+
+      // Start resolving now but keep the promise instead of awaiting it, so the
+      // CMP round trip overlaps with the rest of startup rather than holding the
+      // splash. Await it only where the consent decision is actually needed.
+      consentResolutionRef.current = resolveConsent();
     } catch (error) {
       console.error('Error initializing consent:', error);
     } finally {
@@ -293,6 +305,19 @@ const HomeScreen: React.FC = () => {
         ),
     },
     {
+      title: 'Resolve Consent (verdict + regulation)',
+      onPress: () =>
+        handleApiCall(
+          () => consentResolutionRef.current ?? resolveConsent(),
+          (r) => {
+            const { consentRequired, regulation } = r as ConsentResolution;
+            return `Required: ${consentRequired}, regulation: ${regulation || '(empty)'}`;
+          },
+          'Failed to resolve consent',
+          'resolveConsent'
+        ),
+    },
+    {
       title: 'Get CMP String',
       onPress: () =>
         handleApiCall(
@@ -303,20 +328,20 @@ const HomeScreen: React.FC = () => {
         ),
     },
     {
-      title: 'Get Status for Purpose c53',
+      title: 'Get Status for Purpose c54',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.getStatusForPurpose('c53'),
+          () => CmSdkReactNativeV3.getStatusForPurpose('c54'),
           (r) => `Purpose: ${r}`,
           'Failed',
           'getStatusForPurpose'
         ),
     },
     {
-      title: 'Get Status for Vendor s2789',
+      title: 'Get Status for Vendor s2612',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.getStatusForVendor('s2789'),
+          () => CmSdkReactNativeV3.getStatusForVendor('s2612'),
           (r) => `Vendor: ${r}`,
           'Failed',
           'getStatusForVendor'
@@ -333,20 +358,20 @@ const HomeScreen: React.FC = () => {
         ),
     },
     {
-      title: 'Accept Purposes c52, c53',
+      title: 'Accept Purposes c52, c54',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c53'], true),
+          () => CmSdkReactNativeV3.acceptPurposes(['c52', 'c54'], true),
           () => 'Purposes accepted',
           'Failed',
           'acceptPurposes'
         ),
     },
     {
-      title: 'Reject Purposes c52, c53',
+      title: 'Reject Purposes c52, c54',
       onPress: () =>
         handleApiCall(
-          () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c53'], true),
+          () => CmSdkReactNativeV3.rejectPurposes(['c52', 'c54'], true),
           () => 'Purposes rejected',
           'Failed',
           'rejectPurposes'
@@ -427,10 +452,11 @@ const HomeScreen: React.FC = () => {
     {
       title: 'Reset CMP Data',
       onPress: () =>
-        handleApiCall(
-          CmSdkReactNativeV3.resetConsentManagementData,
-          () => 'Data reset'
-        ),
+        handleApiCall(CmSdkReactNativeV3.resetConsentManagementData, () => {
+          // Boot-time promise is stale after a wipe; kick a fresh resolution.
+          consentResolutionRef.current = resolveConsent();
+          return 'Data reset';
+        }),
     },
   ];
 
