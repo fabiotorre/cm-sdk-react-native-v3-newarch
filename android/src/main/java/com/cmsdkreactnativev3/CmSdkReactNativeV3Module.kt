@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Log
 import android.webkit.CookieManager
 import com.facebook.fbreact.specs.NativeCmSdkReactNativeV3Spec
+import java.lang.ref.WeakReference
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
@@ -58,7 +59,8 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   private var urlConfig: UrlConfig
   private var webViewConfig: ConsentLayerUIConfig
   private val uiThreadHandler = Handler(Looper.getMainLooper())
-
+  /** Last Activity passed to [CMPManager.setActivity]; used to avoid WebView recreate. */
+  private var boundActivityRef: WeakReference<Activity>? = null
 
   init {
     reactContext.addLifecycleEventListener(this)
@@ -80,6 +82,25 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
     if (::cmpManager.isInitialized) {
       cmpManager.onActivityDestroyed()
     }
+    clearBoundActivity()
+  }
+
+  /**
+   * Native cmsdkv3 recreates an unattached WebView on every setActivity call.
+   * Skip when the Activity instance is unchanged so cold-start resolveConsent
+   * does not throw away the WebView created during setUrlConfig.
+   */
+  private fun setActivityIfNeeded(manager: CMPManager, activity: Activity) {
+    if (!shouldRebindActivity(boundActivityRef?.get(), activity)) {
+      logDebug("Skipping setActivity; already bound to same activity")
+      return
+    }
+    manager.setActivity(activity)
+    boundActivityRef = WeakReference(activity)
+  }
+
+  private fun clearBoundActivity() {
+    boundActivityRef = null
   }
 
   private fun runOnUiThread(runnable: Runnable) {
@@ -185,7 +206,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
       webViewConfig,
       this
     )
-    cmpManager.setActivity(activity)
+    setActivityIfNeeded(cmpManager, activity)
 
     cmpManager.setOnClickLinkCallback { url ->
       logDebug("Link clicked: $url")
@@ -253,7 +274,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
         }
 
         try {
-          manager.setActivity(activity)
+          setActivityIfNeeded(manager, activity)
           manager.isConsentRequired { result ->
             if (result.isSuccess) {
               promise.resolve(result.getOrNull() ?: false)
@@ -337,7 +358,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
         }
 
         try {
-          manager.setActivity(activity)
+          setActivityIfNeeded(manager, activity)
           manager.forceOpen(jumpToSettings) { result ->
             if (result.isSuccess) {
               promise.resolve(true)
@@ -365,7 +386,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
         }
 
         try {
-          manager.setActivity(activity)
+          setActivityIfNeeded(manager, activity)
           manager.checkAndOpen(jumpToSettings) { result ->
             if (result.isSuccess) {
               promise.resolve(true)
@@ -620,7 +641,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
   override fun onHostResume() {
     if (::cmpManager.isInitialized) {
       cmpManager.onApplicationResume()
-      currentActivitySafe?.let { cmpManager.setActivity(it) }
+      currentActivitySafe?.let { setActivityIfNeeded(cmpManager, it) }
     }
   }
 
@@ -634,6 +655,7 @@ class CmSdkReactNativeV3Module(reactContext: ReactApplicationContext) :
     if (::cmpManager.isInitialized) {
       cmpManager.onActivityDestroyed()
     }
+    clearBoundActivity()
   }
 
   private val currentActivitySafe: Activity?
